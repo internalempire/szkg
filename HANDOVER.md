@@ -1,0 +1,644 @@
+# Prompt di handover — Semantic Zotero Knowledge Graph
+
+> Copia e incolla **l'intero contenuto di questo file** come primo messaggio di
+> una nuova sessione LLM. Questo handover fotografa la conclusione della fase
+> alpha al 13 luglio 2026, ma il codice e Git rimangono sempre la fonte di verità
+> più aggiornata.
+
+---
+
+Sei il nuovo assistente responsabile dello sviluppo di **Semantic Zotero
+Knowledge Graph (SZKG)**. Stai prendendo in consegna un'applicazione locale che
+trasforma una libreria Zotero in una mappa semantica interattiva di paper.
+
+Il progetto si trova in:
+
+```text
+/Users/nicola/Desktop/semantic2
+```
+
+Repository pubblica:
+
+```text
+https://github.com/internalempire/szkg
+```
+
+Licenza: **MIT**. La fase alpha di sviluppo e test è conclusa. Il proprietario
+del progetto ha verificato manualmente che il renderer Sigma/WebGL funzioni bene
+sulla libreria reale; la pipeline, il fallback Cytoscape, la migrazione dei dati,
+i test locali e la CI GitHub sono operativi.
+
+## Come devi collaborare con l'utente
+
+L'utente non è programmatore. Devi quindi:
+
+- comunicare con lui in italiano e con parole semplici;
+- spiegare che cosa fa ogni componente e perché esiste;
+- tradurre il gergo tecnico quando è necessario usarlo;
+- anticipare i rischi e fermarti a spiegare i trade-off non ovvi prima di una
+  decisione importante o difficilmente reversibile;
+- distinguere sempre tra verifiche locali, chiamate di rete e operazioni che
+  possono generare costi;
+- non chiedergli di scegliere dettagli puramente tecnici quando puoi adottare
+  in sicurezza una soluzione ragionevole;
+- proporre un piano prima di cambiamenti architetturali rilevanti e attendere la
+  sua conferma quando le alternative cambiano materialmente il risultato;
+- usare inglese per codice, nomi di variabili, commenti, messaggi dell'app e
+  documentazione pubblica; la guida utente italiana resta separata in
+  `docs/USER_GUIDE.it.md`;
+- commentare il codice in inglese chiaro. Le sole parole italiane ammesse nel
+  codice sono dati linguistici intenzionali, come le stopword, e le vecchie
+  chiavi riconosciute dal migratore.
+
+Non esporre mai il contenuto di `.env`, chiavi API, titoli/abstract privati o
+vettori. Non aggiungere `data/` a Git. Non forzare push, non riscrivere la
+cronologia pubblica e non eliminare modifiche dell'utente senza autorizzazione.
+
+## Prima di compiere qualsiasi modifica
+
+1. Leggi questo file per intero.
+2. Leggi per intero:
+   - `README.md`;
+   - `docs/ARCHITECTURE.md`;
+   - `docs/USER_GUIDE.it.md`;
+   - i file direttamente interessati dal nuovo obiettivo.
+3. Controlla almeno:
+
+   ```bash
+   pwd
+   git status --short --branch
+   git log --oneline --decorate -8
+   git remote -v
+   ```
+
+4. Ricorda che l'utente può avere modifiche locali o commit eseguiti da GitHub:
+   preservali e integra il tuo lavoro senza sovrascriverli.
+5. Se questo handover e il codice divergono, considera il codice e la cronologia
+   Git come fonte di verità e segnala la discrepanza.
+6. Prima di chiamare Zotero o OpenAI, spiega se l'operazione è di sola lettura e
+   se può avere un costo. I test automatici non devono usare rete o segreti.
+7. Dopo una modifica, esegui controlli proporzionati al rischio e riferisci
+   chiaramente cosa hai verificato e cosa non hai potuto verificare.
+
+## Obiettivo del progetto
+
+SZKG aiuta un ricercatore a vedere la struttura concettuale della propria
+libreria Zotero. Usa titolo e abstract per rappresentare ogni paper come un
+vettore semantico; collega i paper simili, individua gruppi tematici, assegna
+etichette automatiche e calcola una posizione bidimensionale. Il risultato è
+esplorabile nel browser come una rete di isole colorate.
+
+Principi del progetto:
+
+- **local-first**: database vettoriale, grafo, cluster e stato restano sul
+  computer dell'utente;
+- **Zotero read-only**: l'app non modifica mai la libreria Zotero;
+- **costo controllato**: un paper già presente nella cache non viene embeddato
+  di nuovo;
+- **aggiornamento rapido e ricostruzione precisa**: `sync` privilegia stabilità e
+  velocità, `refresh` ricalcola l'organizzazione globale;
+- **pipeline indipendente dal renderer**: Python produce JSON comuni a Sigma e
+  Cytoscape;
+- **interfacce sostituibili**: sorgente dei paper e fornitore degli embedding
+  sono separati dal resto della pipeline;
+- **privacy del repository**: dati personali, chiavi e vettori sono esclusi da
+  Git.
+
+## Funzionalità disponibili all'utente
+
+### Comandi principali
+
+```bash
+python app.py refresh
+python app.py sync
+python app.py serve
+```
+
+- `refresh`: sincronizza gli embedding mancanti, poi ricostruisce grafo, temi,
+  etichette e layout dell'intera cache. Riusa gli embedding esistenti, ma le
+  isole possono spostarsi perché la struttura globale viene ricalcolata.
+- `sync`: chiede a Zotero le modifiche successive alla versione salvata,
+  embedda soltanto le chiavi mai viste e aggiunge i nuovi paper vicino ai loro
+  vicini senza muovere i nodi esistenti. È il flusso quotidiano.
+- `serve`: migra eventuali vecchi JSON, avvia un server HTTP solo su
+  `127.0.0.1`, prova le porte `8000–8019` e apre il browser. Le risposte hanno
+  `Cache-Control: no-store` per evitare file obsoleti.
+
+`build_map.py` è un entry point verboso storico per una ricostruzione completa e
+un rapporto testuale. I nuovi utenti devono preferire `python app.py refresh`.
+
+### Interazioni della mappa
+
+L'interfaccia permette di:
+
+- fare pan e zoom, usare i pulsanti `+`, `−` e fit;
+- passare sul nodo per vedere il titolo;
+- selezionare un paper e vedere titolo, tema, numero di collegamenti e link
+  `zotero://` per aprirlo in Zotero;
+- evidenziare il suo vicinato semantico;
+- cliccare uno degli archi evidenziati e aprire un secondo pannello con il paper
+  collegato;
+- cercare nei titoli;
+- fare anteprima o bloccare l'evidenziazione di un tema dalla legenda;
+- mostrare o nascondere singoli temi tramite checkbox;
+- mostrare o nascondere le assegnazioni deboli;
+- rileggere i JSON dal pulsante **Refresh data**, aggiungendo al grafo del
+  browser soltanto i nuovi nodi e archi;
+- ripristinare la vista completa.
+
+Sigma mostra etichette HTML fluttuanti per i 14 temi più grandi. I singoli nodi
+non hanno etichette sempre visibili, per evitare sovraccarico grafico.
+
+Il pulsante **Refresh data** non avvia Python, Zotero o OpenAI e non modifica i
+JSON: rilegge i file già generati. È adatto dopo `sync`. Dopo un `refresh`
+completo bisogna ricaricare la pagina per applicare pienamente nuove coordinate
+e un nuovo insieme di archi ai nodi già presenti.
+
+## Architettura in una vista
+
+```text
+Zotero Web API (sola lettura)
+  -> zotero_source.py: Paper normalizzati
+  -> embeddings.py: vettori OpenAI da 1.536 dimensioni
+  -> store.py: cache locale LanceDB
+       -> graph.py: grafo k-nearest-neighbor con similarità coseno
+       -> clustering.py: PCA -> HDBSCAN -> etichette c-TF-IDF
+       -> layout.py: PCA -> t-SNE -> coordinate 2D
+  -> pipeline.py: orchestration di sync e refresh
+  -> data/graph.json + data/clusters.json + data/state.json
+  -> Graphology + Sigma.js/WebGL nel browser
+       oppure Cytoscape.js come fallback CPU
+```
+
+## Componenti Python e loro responsabilità
+
+### `config.py`
+
+Legge `.env`, valida la configurazione e restituisce oggetti tipizzati. Variabili
+richieste:
+
+```dotenv
+ZOTERO_LIBRARY_ID=...
+ZOTERO_LIBRARY_TYPE=user
+ZOTERO_API_KEY=...
+OPENAI_API_KEY=...
+```
+
+`ZOTERO_LIBRARY_TYPE` accetta `user` o `group`. Non stampare mai i valori
+segreti.
+
+### `zotero_source.py`
+
+- Definisce il dataclass `Paper` e l'interfaccia astratta `ZoteroSource`.
+- L'implementazione corrente è `PyzoteroSource`.
+- Legge elementi top-level tramite Zotero Web API.
+- Esclude `attachment`, `note` e `annotation` e gli elementi senza titolo.
+- Usa `since=<library version>` per l'incrementale.
+- Il testo semantico corrente è soltanto `title + abstract`; PDF, full text,
+  autori, tag e note non entrano nell'embedding.
+
+La sorgente astratta è stata scelta per poter aggiungere in futuro, per esempio,
+un lettore SQLite locale senza riscrivere il resto.
+
+### `embeddings.py`
+
+- Definisce l'interfaccia `EmbeddingProvider`.
+- Implementazione corrente: OpenAI `text-embedding-3-small`, 1.536 dimensioni.
+- Batch API interni da 100 testi e fino a 6 retry automatici.
+- Restituisce anche i token dichiarati dal provider.
+
+L'interfaccia separata permette di sostituire OpenAI con un altro servizio o un
+modello locale senza cambiare storage, clustering, grafo o viewer.
+
+### `costs.py`
+
+Conta i token con `tiktoken`, stima il costo e mostra abbastanza decimali da non
+nascondere costi molto piccoli. I prezzi sono una tabella locale e possono
+diventare obsoleti: prima di fare previsioni economiche precise, confrontarli con
+il listino ufficiale corrente.
+
+### `store.py`
+
+Usa LanceDB locale in `data/lancedb/`. La tabella `papers` contiene:
+
+- chiave Zotero;
+- titolo e abstract;
+- tipo e versione dell'item;
+- vettore;
+- modello, token, data dell'embedding;
+- `cluster_id` riservato, attualmente inizializzato a `-1`.
+
+La chiave Zotero è l'identità della cache. Questo evita costi duplicati, ma ha
+una conseguenza importante descritta nei limiti noti: una modifica del testo di
+un item già presente non forza oggi un nuovo embedding.
+
+### `graph.py`
+
+Costruisce un grafo di similarità non orientato:
+
+- `k=8` vicini per paper;
+- soglia di similarità coseno `0.5`;
+- la ricerca k-NN è asimmetrica, ma gli endpoint vengono ordinati per deduplicare
+  A→B e B→A;
+- viene mantenuta la similarità più alta osservata;
+- il peso è arrotondato a quattro decimali.
+
+La scelta evita il grafo completo, che sarebbe costoso e illeggibile.
+
+### `clustering.py`
+
+1. PCA riduce gli embedding a un massimo di 50 dimensioni.
+2. HDBSCAN trova gruppi densi senza richiedere in anticipo il numero di temi.
+3. Il c-TF-IDF sceglie le parole distintive del gruppo.
+4. Gli outlier HDBSCAN possono ricevere un tema tramite voto pesato dei vicini,
+   ma soltanto se la similarità supera `0.5`.
+
+Valori correnti: `minimum_topic_size=5`, `min_samples=3`. Le etichette usano
+stopword inglesi e italiane perché i metadati possono essere multilingue. Un
+paper assegnato dopo essere stato considerato rumore è marcato
+`weak_assignment=true`; se non esiste evidenza sufficiente resta nel cluster
+`-1`, cioè `unclassified`.
+
+Le etichette vengono calcolate sui soli membri densi, così gli outlier aggiunti
+non diluiscono il significato del tema.
+
+### `layout.py`
+
+Calcola le coordinate in Python con PCA seguito da t-SNE, poi applica un fattore
+di scala 14. I random seed sono fissi. Per meno di cinque paper usa soltanto
+PCA. Eseguire il layout in Python evita una simulazione di forze bloccante a ogni
+apertura del browser.
+
+### `pipeline.py`
+
+Implementa il principio **“fast now, precise later”**:
+
+- `sync_embeddings()` legge Zotero, salta le chiavi presenti, embedda in gruppi
+  di avanzamento da 200 e aggiorna `state.json` quando non è usato un limite;
+- `rebuild_map()` ricalcola grafo, clustering e layout sull'intera cache;
+- `add_to_map_incrementally()` collega ogni nuovo paper, assegna il tema tramite
+  voto dei vicini e lo posiziona sulla media delle loro coordinate con un piccolo
+  jitter casuale;
+- `sync_library()` combina sincronizzazione e inserimento incrementale.
+
+Se i JSON della mappa non esistono, l'incrementale passa automaticamente a una
+ricostruzione completa.
+
+## Contratti dei dati generati
+
+Tutto `data/` è privato, locale e ignorato da Git.
+
+### `data/graph.json`
+
+```json
+{
+  "nodes": [
+    {
+      "id": "ZOTERO_KEY",
+      "title": "Paper title",
+      "cluster": 3,
+      "cluster_label": "airway, ventilation, pressure",
+      "weak_assignment": false,
+      "x": 12.34,
+      "y": -56.78
+    }
+  ],
+  "edges": [
+    {
+      "source": "ZOTERO_KEY",
+      "target": "OTHER_KEY",
+      "weight": 0.7342
+    }
+  ]
+}
+```
+
+Gli archi sono non orientati. Il cluster `-1` indica i paper non classificati.
+
+### `data/clusters.json`
+
+```json
+{
+  "topics": [
+    {
+      "id": 3,
+      "label": "airway, ventilation, pressure",
+      "keywords": ["airway", "ventilation", "pressure"],
+      "paper_count": 42
+    }
+  ],
+  "assignments": {
+    "ZOTERO_KEY": 3
+  }
+}
+```
+
+### `data/state.json`
+
+```json
+{
+  "last_zotero_version": 12345
+}
+```
+
+È la versione della libreria Zotero, non la versione dell'app.
+
+Preserva questi contratti quando modifichi pipeline o renderer. Se devi
+cambiarli, pianifica esplicitamente una migrazione compatibile.
+
+## Migrazione automatica dallo schema italiano
+
+Le prime versioni usavano chiavi JSON italiane. `data_migration.py` converte:
+
+| Chiave storica | Chiave corrente |
+| --- | --- |
+| `debole` | `weak_assignment` |
+| `temi` | `topics` |
+| `etichetta` | `label` |
+| `parole_chiave` | `keywords` |
+| `numero_paper` | `paper_count` |
+| `assegnazioni` | `assignments` |
+| `ultima_versione` | `last_zotero_version` |
+
+La migrazione viene chiamata da `serve`, `sync` e `refresh`; non apre LanceDB,
+non usa la rete e non ha costi API. Scrive un file temporaneo completo e lo
+sostituisce atomicamente. È idempotente: il secondo passaggio non cambia nulla.
+Se coesistono chiave vecchia e nuova, la nuova ha precedenza.
+
+La compatibilità automatica è stata scelta per non chiedere operazioni manuali
+agli utenti esistenti. Il prezzo è mantenere nel codice un piccolo strato con i
+vecchi nomi italiani; non eliminarlo come “traduzione incompleta”.
+
+## Frontend e renderer
+
+### Sigma.js/WebGL — predefinito
+
+File sorgente: `web/app-sigma.js`. Bundle browser offline:
+`web/dist/app-sigma.bundle.js`.
+
+- Graphology conserva struttura e attributi del grafo.
+- Sigma.js 3 disegna con WebGL/GPU.
+- `@sigma/node-border` crea bordo e alone del nodo selezionato.
+- `@sigma/edge-curve` disegna archi curvi.
+- I colori dei temi usano passi di 137,5° sulla ruota HSL, per separare temi
+  consecutivi.
+- Il colore di un arco è la media RGB dei temi ai due estremi.
+- Curvatura e verso visivo dipendono da un hash stabile dell'ID dell'arco.
+- Nodi e archi mantengono dimensioni sostanzialmente costanti in pixel durante
+  lo zoom.
+- I reducer Sigma trasformano stato di ricerca, selezione e visibilità in
+  attributi WebGL senza modificare i JSON.
+- Gli archi estranei vengono nascosti durante una selezione, ma restano visibili
+  normalmente durante pan e zoom.
+
+Il browser carica il bundle già compilato: gli utenti finali non hanno bisogno
+di Node.js. Dopo ogni modifica a `web/app-sigma.js`, eseguire e committare:
+
+```bash
+npm run build:web
+```
+
+### Cytoscape.js — fallback conservato
+
+`web/app-cytoscape.js` e `web/vendor/` mantengono il vecchio renderer CPU. Si
+attiva con:
+
+```text
+?renderer=cytoscape
+```
+
+Sigma è stato scelto per le prestazioni su migliaia di elementi; Cytoscape è
+stato conservato come paracadute per browser/WebGL incompatibili e per confronto
+diagnostico. Entrambi leggono gli stessi JSON e riusano lo stesso HTML/CSS: la
+pipeline Python non è duplicata.
+
+`web/loader.js` sceglie il renderer. Con Sigma si può aggiungere
+`?edges=straight` per confrontare a scopo diagnostico gli archi dritti con quelli
+curvi. Non esiste ancora un passaggio automatico a Cytoscape se WebGL fallisce.
+
+### Perché il layout non è nel renderer
+
+Le coordinate vengono calcolate una volta dalla pipeline e salvate nei JSON.
+Questo mantiene Sigma e Cytoscape coerenti, evita attese a ogni caricamento e
+lascia al browser soltanto il compito per cui la GPU è utile: disegnare e
+interagire.
+
+## Script diagnostici
+
+- `diagnose_zotero.py`: conta tutti gli item visibili, elenca collezioni e
+  mostra item grezzi; usa Zotero in sola lettura, non OpenAI.
+- `test_zotero.py`: legge otto paper idonei e mostra i metadati essenziali; usa
+  Zotero in sola lettura.
+- `data_quality.py`: trova nella cache titoli simili a nomi di file e abstract
+  mancanti; è locale, di sola lettura e gratuito.
+- `neighbors.py "parte del titolo"`: spiega tema, stato debole, archi e otto
+  vicini semantici di un paper; è locale e gratuito.
+- `test_embedding.py`: prova la catena Zotero → OpenAI → LanceDB su cinque
+  paper; può effettuare una richiesta a pagamento e aggiungere vettori alla
+  cache locale. Non eseguirlo senza rendere esplicita questa conseguenza.
+
+## Dipendenze e build
+
+Runtime Python dichiarato: 3.12 o superiore. Dipendenze principali:
+
+- `pyzotero`, `python-dotenv`;
+- `openai`, `tiktoken`;
+- `lancedb`, `pyarrow`;
+- `numpy`, `scikit-learn`.
+
+Le dipendenze Python usano versioni minime, non un lock completo. Le dipendenze
+frontend sono invece fissate in `package-lock.json`: Sigma 3.0.3, Graphology
+0.26.0, edge-curve 3.1.0, node-border 3.0.0 ed esbuild 0.28.1.
+
+## Test e CI
+
+Comandi di verifica standard:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python -m compileall -q -x '(^|/)(\.venv|node_modules|web/vendor)(/|$)' .
+npm test
+npm run build:web
+git diff --exit-code -- web/dist/app-sigma.bundle.js
+```
+
+La suite automatica corrente contiene quattro test network-free:
+
+- librerie molto piccole restano non classificate;
+- il layout piccolo produce coordinate finite 2D;
+- la formattazione non nasconde costi minimi non nulli;
+- la migrazione italiano→inglese è corretta, atomica nel comportamento atteso e
+  idempotente.
+
+`.github/workflows/ci.yml` esegue i test con Python 3.12 e Node 20, controlla il
+frontend e verifica che il bundle committato corrisponda al sorgente. Ha
+`contents: read`. Non esiste più un workflow dinamico per il badge “Vibe Coded”:
+il badge del README è statico al 100%.
+
+## Stato verificato alla chiusura dell'alpha
+
+- Repository pubblica MIT: `internalempire/szkg`.
+- Baseline funzionale precedente a questo handover: commit `21d2592`.
+- Il logo è conservato in `assets/logo.png`; al momento dello snapshot il
+  README non lo incorpora più, in seguito a una modifica effettuata da GitHub.
+- Codice, commenti e interfaccia sono in inglese; guida utente separata in
+  italiano.
+- Sigma/WebGL è predefinito e verificato manualmente dall'utente.
+- Cytoscape resta disponibile come fallback.
+- I test Python, i controlli JavaScript, la ricostruzione del bundle e la CI
+  GitHub sono passati.
+- È stato verificato via HTTP che pagina, loader, bundle Sigma, script
+  Cytoscape, vendor e JSON rispondano correttamente.
+- La migrazione reale ha convertito `graph.json` e `clusters.json`; un secondo
+  passaggio ha restituito nessuna modifica.
+- `.env`, `data/`, `.venv/` e `node_modules/` sono ignorati da Git e non sono
+  stati pubblicati.
+
+Snapshot locale non sensibile al momento dell'handover:
+
+- 1.818 nodi;
+- 9.846 archi;
+- 56 temi classificati più la voce `unclassified`;
+- 112 paper non classificati;
+- 686 assegnazioni deboli;
+- 54 nodi isolati;
+- coordinate finite per tutti i nodi;
+- `data/state.json` al momento non è presente.
+
+L'assenza di `state.json` significa che il prossimo `sync` farà inizialmente una
+lettura completa dell'elenco Zotero; la cache dovrebbe comunque evitare di
+pagare di nuovo gli embedding già presenti, e al termine verrà salvata la
+versione corrente. Verifica questo comportamento prima di descriverlo come
+risolto.
+
+Il test HTTP non equivale a un test end-to-end automatizzato del canvas. La
+validazione interattiva dell'alpha è stata manuale.
+
+## Scelte già prese e motivazioni
+
+Non cambiare queste decisioni incidentalmente:
+
+1. **Zotero Web API invece di accesso diretto al database desktop**: supporta
+   librerie user/group e versioni incrementali senza modificare Zotero.
+2. **Embedding remoto invece di modello locale**: setup semplice e rapido su un
+   laptop; il costo è l'invio di titolo/abstract a un servizio esterno.
+3. **LanceDB locale**: cache vettoriale persistente senza server o cloud.
+4. **Due modalità, `sync` e `refresh`**: velocità/stabilità quotidiana contro
+   qualità globale periodica.
+5. **HDBSCAN**: il numero di temi non va scelto a priori e gli outlier restano
+   espliciti.
+6. **Assegnazioni deboli visibili**: un paper di frontiera non viene presentato
+   come membro denso del tema.
+7. **Layout Python persistito**: nessun layout costoso al caricamento e parità
+   tra renderer.
+8. **Sigma/WebGL predefinito**: prestazioni e fluidità GPU su migliaia di nodi e
+   archi.
+9. **Cytoscape conservato**: fallback e possibilità di confronto, accettando un
+   piccolo costo di manutenzione duplicata del solo frontend.
+10. **Bundle Sigma committato**: l'utente finale non deve installare npm; gli
+    sviluppatori devono però rigenerarlo dopo ogni modifica al sorgente.
+11. **JSON renderer-neutral**: la pipeline scientifica non dipende dalla
+    tecnologia di disegno.
+12. **Migrazione automatica e idempotente**: nessun passaggio manuale per gli
+    utenti delle versioni italiane.
+13. **Repository pubblica senza dati**: codice MIT aperto, libreria personale e
+    credenziali sempre locali.
+
+## Limiti noti e possibili temi della beta
+
+Questi sono punti aperti, non autorizzazioni automatiche a modificarli:
+
+1. **Superficie del server locale**: `serve.py` espone attualmente l'intera root
+   del progetto tramite HTTP, quindi un processo locale potrebbe richiedere
+   anche `.env` o file di LanceDB. Il binding a `127.0.0.1` impedisce accessi
+   diretti dalla rete, ma nella beta conviene servire esplicitamente soltanto
+   frontend, bundle, vendor, `graph.json` e `clusters.json`, negando segreti e
+   database.
+2. **Metadati modificati**: se titolo o abstract cambiano ma la chiave Zotero è
+   già in LanceDB, oggi l'embedding e i metadati cached non vengono aggiornati.
+   Serve una politica esplicita basata sulla versione Zotero e una valutazione
+   dei costi. Questo rende attualmente imprecisa la promessa della guida italiana
+   secondo cui correggere metadati e fare `refresh` migliora sempre quei paper.
+3. **Elementi cancellati**: l'incrementale non rimuove dalla cache o dalla mappa
+   gli item eliminati in Zotero.
+4. **Coerenza tra stato, cache e mappa**: `sync_embeddings()` avanza
+   `state.json` prima dell'inserimento nei JSON. Un crash successivo può lasciare
+   un paper in LanceDB e nello stato, ma assente dalla mappa fino a un `refresh`.
+   Inoltre le normali scritture di `graph.json` e `clusters.json` non sono ancora
+   atomiche come quelle del migratore.
+5. **Qualità incrementale**: `sync` non ricalcola temi o layout globali; dopo
+   molte aggiunte è necessario `refresh`.
+6. **Refresh del browser append-only**: il pulsante aggiorna colori e legenda e
+   aggiunge nuovi elementi, ma non rimuove elementi e non sostituisce coordinate
+   o archi esistenti. Dopo una ricostruzione completa serve il reload.
+7. **Jitter incrementale**: la posizione dei nuovi paper contiene casualità non
+   seedata; due inserimenti ricostruiti separatamente possono differire.
+8. **Layout globale**: un `refresh` può spostare le isole quando cambia il
+   dataset, anche con random seed fisso.
+9. **Contenuto analizzato**: si usano solo titolo e abstract; paper senza
+   abstract hanno rappresentazioni più deboli.
+10. **Link Zotero per librerie di gruppo**: il viewer costruisce sempre
+    `zotero://select/library/items/{key}`. Verificare il formato richiesto dalle
+    group library prima di dichiararne completo il supporto nell'interfaccia.
+11. **Compatibilità embedding**: una tabella esistente non impedisce oggi di
+    mescolare modelli incompatibili; un cambio di modello o dimensione richiede
+    guardie e migrazione. Il provider espone `dimensions`, ma la richiesta API
+    corrente non passa esplicitamente quel parametro.
+12. **Tema `unclassified` incrementale**: se la mappa non conteneva già il tema
+    `-1` e arriva un nuovo paper senza voto valido, l'assegnazione viene salvata
+    ma la relativa voce potrebbe non comparire nella legenda dei cluster.
+13. **Prezzi OpenAI**: la tabella di costo è manuale e va verificata nel tempo.
+14. **Test**: la copertura automatica è ancora ridotta; mancano test di
+   integrazione della pipeline, contratti JSON completi e test browser end-to-end
+   per entrambi i renderer, sicurezza del server, URI group e performance.
+15. **Riproducibilità Python**: `requirements.txt` usa limiti minimi e non congela
+   tutte le versioni transitive.
+16. **Distribuzione**: l'installazione richiede ancora terminale, venv e `.env`;
+    non esiste installer o interfaccia di onboarding per utenti non tecnici.
+17. **Scalabilità**: il grafo effettua una ricerca vettoriale per paper e
+    clustering/layout caricano tutto in RAM; è adeguato a circa 2.000 paper ma
+    va misurato su librerie molto più grandi.
+18. **Nomenclatura e traduzione residue**: il nome pubblico è “Semantic Zotero
+    Knowledge Graph”, ma
+    alcuni identificatori interni storici (`semantic-zotero-map`, titolo HTML o
+    testi “Semantic map”) possono restare. Due commenti italiani sono ancora
+    presenti nel fallback Cytoscape e la guida usa ancora il percorso locale
+    storico `semantic2`. Non causano incompatibilità; valuta separatamente se
+    uniformarli.
+
+Per ogni punto, prima di implementare una soluzione spiega all'utente impatto,
+costo, migrazione dei dati e possibilità di rollback.
+
+## Regole per modifiche future
+
+- Conserva la pipeline Python se il compito riguarda soltanto il rendering.
+- Conserva entrambi i renderer finché l'utente non decide esplicitamente il
+  contrario.
+- Non cambiare dimensione o modello degli embedding senza progettare la
+  compatibilità con LanceDB; i vettori esistenti hanno 1.536 dimensioni.
+- Non cambiare l'identità basata sulla chiave Zotero senza una migrazione.
+- Non rinominare campi JSON senza aggiornare pipeline, migratore, Sigma,
+  Cytoscape, test e documentazione.
+- Non editare direttamente `web/dist/app-sigma.bundle.js`: modifica
+  `web/app-sigma.js` e ricostruisci il bundle.
+- Non considerare le librerie vendorizzate sotto `web/vendor/` come codice
+  applicativo da riformattare o tradurre.
+- Mantieni la CI network-free; test Zotero/OpenAI restano manuali.
+- Controlla sempre che `.env` e `data/` siano ignorati prima di un push.
+- Se usi informazioni correnti su API, prezzi o dipendenze, verifica fonti
+  ufficiali aggiornate.
+- Dopo il lavoro lascia Git pulito, integra eventuali commit remoti senza force
+  push e comunica commit/CI all'utente se hai pubblicato modifiche.
+
+## Come iniziare la nuova sessione
+
+Dopo aver completato le letture e i controlli iniziali, rispondi all'utente con:
+
+1. una sintesi in linguaggio semplice di ciò che hai capito;
+2. lo stato Git effettivo e le eventuali discrepanze rispetto a questo snapshot;
+3. i rischi pertinenti al nuovo obiettivo;
+4. un piano breve e verificabile.
+
+Non iniziare da zero, non ripetere lavoro già concluso e non assumere che un
+punto della possibile beta sia il prossimo obiettivo: attendi la richiesta
+specifica dell'utente o usa quella fornita insieme a questo handover.
