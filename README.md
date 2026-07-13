@@ -1,5 +1,7 @@
 # Semantic Zotero Map
 
+[![0% Vibe_Coded](https://img.shields.io/badge/0%25-Vibe_Coded-ff69b4?style=for-the-badge&logo=openai&logoColor=white)](https://github.com/ai-ecoverse/vibe-coded-badge-action)
+
 A local-first application that turns a Zotero research library into an
 interactive semantic map. Papers with similar titles and abstracts appear near
 one another, form automatically labeled topics, and are connected by semantic
