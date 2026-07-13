@@ -1,4 +1,7 @@
-##Semantic Zotero Knowledge Graph: a local-first WebGL semantic map for Zotero research libraries
+# Semantic Zotero Knowledge Graph
+
+[![100% Vibe Coded](https://img.shields.io/badge/100%25-Vibe_Coded-ff69b4?style=for-the-badge&logo=openai&logoColor=white)](https://github.com/ai-ecoverse/vibe-coded-badge-action)
+
 A local-first application that turns a Zotero research library into an
 interactive semantic map. Papers with similar titles and abstracts appear near
 one another, form automatically labeled topics, and are connected by semantic
@@ -18,8 +21,6 @@ An Italian user guide is available at
 [docs/USER_GUIDE.it.md](docs/USER_GUIDE.it.md).
 
 ## What users can do
-
-[![0% Vibe_Coded](https://img.shields.io/badge/0%25-Vibe_Coded-ff69b4?style=for-the-badge&logo=openai&logoColor=white)](https://github.com/ai-ecoverse/vibe-coded-badge-action)
 
 - Build a semantic overview of a personal or group Zotero library.
 - Explore automatically discovered topic islands.
