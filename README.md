@@ -112,8 +112,8 @@ need Node.js or npm.
 Clone the repository and enter it:
 
 ```bash
-git clone https://github.com/internalempire/semantic-zotero-map.git
-cd semantic-zotero-map
+git clone https://github.com/internalempire/szkg.git
+cd szkg
 ```
 
 Create an isolated Python environment:
