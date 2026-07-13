@@ -1,0 +1,18 @@
+{
+  "name": "semantic-zotero-map",
+  "private": true,
+  "scripts": {
+    "build:web": "esbuild web/app-sigma.js --bundle --format=iife --platform=browser --target=es2020 --outfile=web/dist/app-sigma.bundle.js",
+    "check:web": "esbuild web/app-sigma.js --bundle --format=iife --platform=browser --target=es2020 --outfile=/tmp/semantic-zotero-map-check.js",
+    "test": "npm run check:web && node --check web/app-cytoscape.js && node --check web/loader.js"
+  },
+  "dependencies": {
+    "@sigma/edge-curve": "3.1.0",
+    "@sigma/node-border": "3.0.0",
+    "graphology": "0.26.0",
+    "sigma": "3.0.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1"
+  }
+}

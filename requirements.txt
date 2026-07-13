@@ -1,0 +1,15 @@
+# Zotero Web API client and local environment configuration
+pyzotero>=1.5.18
+python-dotenv>=1.0.1
+
+# OpenAI embeddings and exact token counting
+openai>=2.0
+tiktoken>=0.7
+
+# Local vector storage
+lancedb>=0.13
+pyarrow>=17
+
+# Numerical analysis, clustering, and layout
+scikit-learn>=1.5
+numpy>=1.26
