@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/logo.png" alt="Semantic Zotero Knowledge Graph logo" width="420">
-</p>
-
 # Semantic Zotero Knowledge Graph
 
 [![100% Vibe Coded](https://img.shields.io/badge/100%25-Vibe_Coded-ff69b4?style=for-the-badge&logo=openai&logoColor=white)](https://github.com/ai-ecoverse/vibe-coded-badge-action)
