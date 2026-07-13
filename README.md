@@ -270,6 +270,19 @@ read access only. The application does not contain Zotero write operations.
 
 ## Diagnostics
 
+These optional scripts help isolate problems without rebuilding the complete
+map:
+
+| Script | What it checks | Network and data effects |
+| --- | --- | --- |
+| `python diagnose_zotero.py` | Counts everything visible to the configured Zotero key, lists up to 20 collections, and shows five raw items including attachments. Use it when the normal importer reports an empty library or when you suspect the wrong library ID, type, synchronization state, or key permissions. | Reads the Zotero Web API. It never modifies the library and makes no OpenAI request. |
+| `python data_quality.py` | Inspects the local LanceDB cache for titles that look like filenames and papers without abstracts. These records can produce weak semantic positions because the embedding has little useful text. | Local and read-only; no network or API cost. |
+| `python neighbors.py "part of a paper title"` | Finds matching cached papers and explains each paper's topic, weak-assignment status, graph-link count, and eight closest semantic neighbors with similarity percentages. A `+` marks neighbors above the graph threshold. Use it to understand why a paper appears in a particular area or topic. | Local and read-only; no network or API cost. |
+| `python test_zotero.py` | Downloads a sample of eight eligible papers and prints their type, key, version, title, and a shortened abstract. Use it to verify that credentials work and that the normal importer receives useful metadata. | Reads the Zotero Web API. It does not write to Zotero, call OpenAI, or alter the local map. |
+| `python test_embedding.py` | Exercises the complete small-sample path: fetches five Zotero papers, skips cached keys, estimates token cost, embeds only uncached samples, verifies vector dimensions, and stores the new vectors in LanceDB. | Reads Zotero and can make a paid OpenAI request. It adds uncached sample papers to the local embedding cache, but does not rebuild the map or modify Zotero. |
+
+Run them from the project directory with the Python environment active:
+
 ```bash
 python diagnose_zotero.py
 python data_quality.py
@@ -278,9 +291,10 @@ python test_zotero.py
 python test_embedding.py
 ```
 
-`test_embedding.py` makes a real API request for uncached sample papers. The
-other diagnostics are read-only, although `test_zotero.py` and
-`diagnose_zotero.py` access the Zotero Web API.
+Start with `diagnose_zotero.py` or `test_zotero.py` for connection problems,
+`data_quality.py` for suspicious map content, and `neighbors.py` for a single
+paper that appears misplaced. Run `test_embedding.py` only when you explicitly
+want to test the paid embedding path.
 
 ## Frontend development
 
