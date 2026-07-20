@@ -66,11 +66,11 @@ An Italian user guide is available at
 ┌──────────────────────────┐  ┌──────────────────────────────┐
 │ k-Nearest-Neighbor Graph │  │ Topic Analysis and Clustering│
 │                          │  │                              │
-│ Semantic similarity      │  │ PCA                         │
-│ relationships between    │  │   ↓                         │
-│ papers                   │  │ HDBSCAN                     │
-└─────────────┬────────────┘  │   ↓                         │
-              │               │ c-TF-IDF                    │
+│ Semantic similarity      │  │ PCA                          │
+│ relationships between    │  │   ↓                          │
+│ papers                   │  │ HDBSCAN                      │
+└─────────────┬────────────┘  │   ↓                          │
+              │               │ c-TF-IDF                     │
               │               │                              │
               │               │ Produces topic groups and    │
               │               │ descriptive keyword labels   │
@@ -85,7 +85,7 @@ An Italian user guide is available at
 │                 PCA → t-SNE                  │
 │                                              │
 │  Generation of 2D coordinates for graph      │
-│  visualization                              │
+│  visualization                               │
 └──────────────────────┬───────────────────────┘
                        │
                        ▼
