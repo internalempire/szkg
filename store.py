@@ -48,10 +48,11 @@ def _schema(vector_dimensions: int) -> pa.Schema:
 class PaperStore:
     """Open or create the local vector store and expose pipeline operations."""
 
-    def __init__(self, vector_dimensions: int) -> None:
+    def __init__(self, vector_dimensions: int, data_directory: Path | None = None) -> None:
         self._dimensions = vector_dimensions
-        DATA_DIRECTORY.mkdir(parents=True, exist_ok=True)
-        self._database = lancedb.connect(str(DATA_DIRECTORY))
+        directory = data_directory or DATA_DIRECTORY
+        directory.mkdir(parents=True, exist_ok=True)
+        self._database = lancedb.connect(str(directory))
         if TABLE_NAME in self._database.table_names():
             self._table = self._database.open_table(TABLE_NAME)
         else:
@@ -70,18 +71,16 @@ class PaperStore:
         rows = self._table.search().select(["key"]).limit(row_count).to_list()
         return {row["key"] for row in rows}
 
-    def add(
+    def _build_rows(
         self,
         papers: list[Paper],
         vectors: list[list[float]],
         token_per_paper: list[int],
         model: str,
-    ) -> None:
-        """Append newly embedded papers without rebuilding existing records."""
-        if not papers:
-            return
+    ) -> list[dict]:
+        """Shape papers and vectors into database rows shared by add and upsert."""
         embedded_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        rows = [
+        return [
             {
                 "key": paper.key,
                 "title": paper.title,
@@ -96,7 +95,41 @@ class PaperStore:
             }
             for paper, vector, tokens in zip(papers, vectors, token_per_paper)
         ]
-        self._table.add(rows)
+
+    def add(
+        self,
+        papers: list[Paper],
+        vectors: list[list[float]],
+        token_per_paper: list[int],
+        model: str,
+    ) -> None:
+        """Append newly embedded papers without rebuilding existing records."""
+        if not papers:
+            return
+        self._table.add(self._build_rows(papers, vectors, token_per_paper, model))
+
+    def upsert(
+        self,
+        papers: list[Paper],
+        vectors: list[list[float]],
+        token_per_paper: list[int],
+        model: str,
+    ) -> None:
+        """Insert new papers and update rows whose Zotero key already exists.
+
+        Used when a paper's title or abstract was edited in Zotero: the item key
+        is unchanged, so a plain append would create a duplicate. ``merge_insert``
+        replaces the matching row in a single operation, keeping one row per key.
+        """
+        if not papers:
+            return
+        rows = self._build_rows(papers, vectors, token_per_paper, model)
+        (
+            self._table.merge_insert("key")
+            .when_matched_update_all()
+            .when_not_matched_insert_all()
+            .execute(rows)
+        )
 
     def read_all(self) -> CompleteDataset:
         """Load the complete small-to-medium library into NumPy-friendly data."""

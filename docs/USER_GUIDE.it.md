@@ -36,8 +36,12 @@ quando lanci l'aggiornamento della mappa.
 
 3. **Il magazzino.** Le coordinate, insieme a titolo e abstract, vengono
    archiviate in un piccolo database sul tuo computer (nella cartella `data/`).
-   Da quel momento il paper è "conosciuto": non lo pagheremo mai più, perché prima
-   di chiedere le coordinate a OpenAI controlliamo sempre se le abbiamo già.
+   Da quel momento il paper è "conosciuto": finché il suo testo non cambia non lo
+   pagheremo più, perché prima di chiedere le coordinate a OpenAI controlliamo
+   sempre se le abbiamo già. Se invece **correggi titolo o abstract in Zotero**,
+   al prossimo `sync` l'app se ne accorge e ricalcola le coordinate solo di quel
+   paper (una spesa minima); un semplice cambio di tag o collezione, che non
+   tocca il significato, non costa nulla.
 
 4. **I legami (il grafo).** Per collocare il paper nella rete, cerchiamo i suoi
    *vicini più simili* già presenti e tracciamo una linea verso di loro, ma solo
@@ -187,8 +191,10 @@ sotto gli occhi. Bastano pochi dollari di credito su OpenAI per anni d'uso.
 - **`python data_quality.py`** ti elenca le voci di Zotero con dati poveri: quelle
   che hanno come titolo un nome di file (es. `Larson.pdf`) o senza abstract. Per
   quei paper le coordinate sono poco affidabili e finiscono in temi "finti".
-  Non è obbligatorio sistemarle, ma se aggiungi titolo e abstract veri in Zotero e
-  poi lanci un `refresh`, la mappa migliora.
+  Non è obbligatorio sistemarle, ma se correggi titolo e abstract in Zotero, il
+  prossimo `sync` ricalcola le coordinate di quei paper (nel frattempo sulla
+  mappa se ne aggiorna subito il titolo) e un `refresh` li riposiziona nel punto
+  giusto: la mappa migliora davvero.
 
 - **Quando fare `refresh`**: quando hai aggiunto parecchi paper con `sync` e noti
   che i nuovi si accumulano un po' alla rinfusa, oppure dopo aver sistemato voci
