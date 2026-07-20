@@ -248,27 +248,6 @@ To compare Sigma curved edges with straight edges:
 http://127.0.0.1:8000/web/index.html?edges=straight
 ```
 
-## Automatic migration from the original Italian schema
-
-Earlier local versions wrote a few Italian JSON field names. On `serve`, `sync`,
-or `refresh`, `data_migration.py` checks `graph.json`, `clusters.json`, and
-`state.json` and converts only those metadata keys:
-
-| Legacy key | Current key |
-| --- | --- |
-| `debole` | `weak_assignment` |
-| `temi` | `topics` |
-| `etichetta` | `label` |
-| `parole_chiave` | `keywords` |
-| `numero_paper` | `paper_count` |
-| `assegnazioni` | `assignments` |
-| `ultima_versione` | `last_zotero_version` |
-
-The migration is idempotent: after the first successful conversion, later runs
-make no changes. Each JSON file is written to a temporary file and atomically
-replaced only when complete. LanceDB, abstracts, and embedding vectors are not
-modified, and the migration performs no network or paid API request.
-
 ## Cost behavior
 
 Only new or edited papers incur an OpenAI API cost. Before sending text, the app
