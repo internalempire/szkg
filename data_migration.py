@@ -1,9 +1,9 @@
-"""Migrate local data contracts from the original Italian schema to English.
+"""Migrate local data contracts from the original legacy schema to English.
 
-The project started as a personal Italian-language application. Its generated
-JSON files therefore used Italian field names. This module upgrades those small
-metadata files in place while leaving LanceDB and embedding vectors untouched.
-No network request is made and the migration has no API cost.
+Earlier releases used a few legacy field names in their generated JSON files.
+This module upgrades those small metadata files in place while leaving LanceDB
+and embedding vectors untouched. No network request is made and the migration
+has no API cost.
 """
 
 from __future__ import annotations

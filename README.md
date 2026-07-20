@@ -17,9 +17,6 @@ kept as a safety fallback.
 > topics, graph files, and application state remain in the local `data/`
 > directory, which is excluded from Git.
 
-An Italian user guide is available at
-[docs/USER_GUIDE.it.md](docs/USER_GUIDE.it.md).
-
 ## What users can do
 
 - Build a semantic overview of a personal or group Zotero library.
@@ -132,6 +129,22 @@ Everything runs through `app.py` with one of three verbs:
 `sync` is fast and stable; `refresh` is slower and reorganizes the topic islands
 for a cleaner global picture. Both skip papers whose title and abstract are
 unchanged, so they are never re-embedded or paid for twice.
+
+## Results depend on metadata quality
+
+The map is built only from each paper's **title and abstract** — not the PDF full
+text, authors, tags, or notes. A paper is therefore placed only as well as its
+metadata describes it, and the **abstract matters most**:
+
+- A missing or very short abstract leaves the model little to work with, so the
+  paper gets a weak position and often lands in a loose or `unclassified` area.
+- A title that is actually a filename (for example `Larson2019.pdf`) carries no
+  meaning and causes the same problem.
+
+For the best map, keep titles and abstracts complete in Zotero. Run
+`python data_quality.py` to list papers with missing abstracts or filename-like
+titles; after you fix them in Zotero, `python app.py sync` re-embeds those papers
+and `python app.py refresh` repositions them.
 
 ## Requirements
 

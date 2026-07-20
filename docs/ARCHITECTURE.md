@@ -78,7 +78,7 @@ Zotero Web API
   position are recomputed by the next `rebuild_map()`.
 - `sync_library()` combines embedding synchronization and incremental map
   insertion.
-- `data_migration.py` upgrades JSON metadata from the original Italian schema
+- `data_migration.py` upgrades JSON metadata from the original legacy schema
   before any workflow reads it.
 
 ## Generated data contracts
@@ -143,11 +143,11 @@ The version is Zotero's library version, not an application release number.
 
 ## Automatic schema migration
 
-`migrate_local_data()` recognizes the legacy Italian keys documented in the
-README. It transforms only parsed JSON metadata, writes a temporary sibling
-file, and then replaces the original atomically. It does not open LanceDB or
-call Zotero/OpenAI. The current key is always preferred if both old and new
-keys exist, and a second run is a no-op.
+`migrate_local_data()` recognizes the legacy field names and upgrades them to
+their current equivalents. It transforms only parsed JSON metadata, writes a
+temporary sibling file, and then replaces the original atomically. It does not
+open LanceDB or call Zotero/OpenAI. The current key is always preferred if both
+old and new keys exist, and a second run is a no-op.
 
 This automatic approach avoids forcing existing users to run a one-time manual
 command. The trade-off is that the application retains a small compatibility

@@ -174,7 +174,7 @@ function applyLayout() {
     requestAnimationFrame(() => {
       cy.resize();
       cy.fit(undefined, 30);
-      applyZoomScale(); // pallini alla giusta dimensione fin dall'inizio
+      applyZoomScale(); // nodes at the correct size from the very start
       document.getElementById("loading").classList.add("hidden");
     });
     return;
@@ -372,7 +372,7 @@ function bindGraphEvents() {
     deselectNode();
     node.addClass("selected");
     selectedNode = node.id();
-    resizeNode(node); // ingrandisce SOLO il newGraph selected (veloce)
+    resizeNode(node); // enlarge ONLY the selected node (fast path)
     cy.edges().removeClass("edge-selected");
     document.getElementById("info2").classList.add("hidden");
     clearHighlight();

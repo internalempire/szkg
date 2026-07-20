@@ -1,4 +1,4 @@
-"""Regression tests for the one-time Italian-to-English data migration."""
+"""Regression tests for the one-time legacy-to-English data migration."""
 
 from __future__ import annotations
 
