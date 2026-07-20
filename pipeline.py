@@ -155,7 +155,7 @@ def rebuild_map(
     k: int = 8,
     threshold: float = 0.5,
     minimum_topic_size: int = 5,
-    min_samples: int = 3,
+    min_samples: int = 1,  # see cluster_papers: keeps dense topics from merging
     assign_outliers: bool = True,
     verbose: bool = True,
 ) -> ClusteringResult:
