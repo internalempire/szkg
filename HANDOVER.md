@@ -253,7 +253,9 @@ La scelta evita il grafo completo, che sarebbe costoso e illeggibile.
 4. Gli outlier HDBSCAN possono ricevere un tema tramite voto pesato dei vicini,
    ma soltanto se la similarità supera `0.5`.
 
-Valori correnti: `minimum_topic_size=5`, `min_samples=3`. Le etichette usano
+Valori correnti: `minimum_topic_size=5`, `min_samples=1`. Un `min_samples` più
+alto, su una libreria monotematica, faceva collassare tutti i paper in un unico
+cluster gigante; `1` mantiene separati i temi densi reali. Le etichette usano
 stopword inglesi e italiane perché i metadati possono essere multilingue. Un
 paper assegnato dopo essere stato considerato rumore è marcato
 `weak_assignment=true`; se non esiste evidenza sufficiente resta nel cluster

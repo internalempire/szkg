@@ -130,7 +130,11 @@ def cluster_papers(
     vectors: np.ndarray,
     texts: list[str],
     minimum_topic_size: int = 5,
-    min_samples: int = 3,
+    # ``min_samples`` controls how conservative HDBSCAN is about density. On a
+    # large, topically homogeneous corpus (e.g. a single-field library) a higher
+    # value lets mutual-reachability chaining merge every paper into one giant
+    # cluster. ``1`` keeps the many genuine dense topics separated.
+    min_samples: int = 1,
     assign_outliers: bool = True,
     assignment_threshold: float = 0.5,
 ) -> ClusteringResult:
