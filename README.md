@@ -38,29 +38,69 @@ An Italian user guide is available at
 ## How it works
 
 ```text
-Zotero Web API
-  |  title + abstract, fetched incrementally by library version
-  v
-OpenAI embeddings
-  |  one 1,536-dimensional vector per uncached paper
-  v
-LanceDB local vector store
-  |  persistent cache + cosine neighbor search
-  +-------------------------------+
-  |                               |
-  v                               v
-k-nearest-neighbor graph      PCA -> HDBSCAN -> c-TF-IDF
-  |                           topic groups and keyword labels
-  +---------------+---------------+
-                  v
-             PCA -> t-SNE
-             2D positions
-                  |
-                  v
-       graph.json + clusters.json
-                  |
-                  v
-     Graphology + Sigma.js/WebGL
+┌──────────────────────────────────────────────┐
+│                Zotero Web API                │
+│                                              │
+│  Incremental retrieval of titles and         │
+│  abstracts based on the Zotero library       │
+│  version                                     │
+└──────────────────────┬───────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────┐
+│              OpenAI Embeddings               │
+│                                              │
+│  Generation of one 1,536-dimensional vector  │
+│  for each paper not already stored in cache  │
+└──────────────────────┬───────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────┐
+│          LanceDB Local Vector Store          │
+│                                              │
+│  Persistent embedding cache and cosine       │
+│  similarity neighbor search                  │
+└───────────────┬──────────────────┬───────────┘
+                │                  │
+                ▼                  ▼
+┌──────────────────────────┐  ┌──────────────────────────────┐
+│ k-Nearest-Neighbor Graph │  │ Topic Analysis and Clustering│
+│                          │  │                              │
+│ Semantic similarity      │  │ PCA                         │
+│ relationships between    │  │   ↓                         │
+│ papers                   │  │ HDBSCAN                     │
+└─────────────┬────────────┘  │   ↓                         │
+              │               │ c-TF-IDF                    │
+              │               │                              │
+              │               │ Produces topic groups and    │
+              │               │ descriptive keyword labels   │
+              │               └──────────────┬───────────────┘
+              │                              │
+              └───────────────┬──────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────┐
+│           Two-Dimensional Projection         │
+│                                              │
+│                 PCA → t-SNE                  │
+│                                              │
+│  Generation of 2D coordinates for graph      │
+│  visualization                              │
+└──────────────────────┬───────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────┐
+│                Output Files                  │
+│                                              │
+│        graph.json and clusters.json          │
+└──────────────────────┬───────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────┐
+│               Visualization                  │
+│                                              │
+│      Graphology + Sigma.js + WebGL           │
+└──────────────────────────────────────────────┘
 ```
 
 The pipeline deliberately separates responsibilities:
