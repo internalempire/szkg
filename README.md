@@ -30,6 +30,8 @@ An Italian user guide is available at
 - Select a highlighted link to inspect the paper at its other endpoint.
 - Open a selected item directly in Zotero.
 - Add new papers incrementally without paying to embed cached papers again.
+- Re-embed a paper automatically when you edit its title or abstract in Zotero,
+  while unchanged papers are never re-embedded.
 - Periodically rebuild the complete map for a more globally accurate layout.
 - See token usage and estimated embedding cost on every synchronization.
 
@@ -76,6 +78,20 @@ The pipeline deliberately separates responsibilities:
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for data contracts and design
 details.
+
+## Commands at a glance
+
+Everything runs through `app.py` with one of three verbs:
+
+| Command | When to use it | Network and cost |
+| --- | --- | --- |
+| `python app.py sync` | Everyday update after adding or editing papers in Zotero. Embeds only new or edited papers and attaches them near their neighbors without moving the existing map. | Reads Zotero; embeds only new/edited papers (a fraction of a cent). |
+| `python app.py refresh` | Occasional full rebuild after substantial changes. Recomputes topics, graph, and layout for the whole library. | Same Zotero/embedding step as `sync`, then a free local rebuild that reuses cached vectors. |
+| `python app.py serve` | Open the interactive map in your browser. | Local only: no external network and no cost. |
+
+`sync` is fast and stable; `refresh` is slower and reorganizes the topic islands
+for a cleaner global picture. Both skip papers whose title and abstract are
+unchanged, so they are never re-embedded or paid for twice.
 
 ## Requirements
 
@@ -200,6 +216,10 @@ python app.py refresh
 `refresh` reuses cached embeddings, but recomputes the graph, topics, labels,
 and layout for the complete collection. It is slower and moves topic islands,
 but provides a cleaner global organization after substantial library growth.
+
+For a full rebuild that also prints a textual report of the discovered topics and
+graph shape, the legacy `python build_map.py` entry point remains available. New
+users should prefer `python app.py refresh`.
 
 ## Viewer controls
 
