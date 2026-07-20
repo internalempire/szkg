@@ -46,6 +46,30 @@ class SyncResult:
     tokens_used: int
     cost: float
     new_keys: list[str] = field(default_factory=list)
+    updated_keys: list[str] = field(default_factory=list)
+
+
+def _partition_by_change(
+    papers: list, cached_text: dict[str, tuple[str, str]]
+) -> tuple[list, list]:
+    """Split incoming Zotero papers into never-seen and text-changed groups.
+
+    ``cached_text`` maps a Zotero key to its cached ``(title, abstract)``. A paper
+    is "new" when its key is absent and "changed" when the key exists but the
+    title or abstract differs; an unchanged paper is returned in neither list.
+    Comparing the semantic text rather than the Zotero version avoids paying to
+    re-embed papers whose only change was an unrelated field such as a tag or a
+    collection membership.
+    """
+    new_papers: list = []
+    changed_papers: list = []
+    for paper in papers:
+        cached = cached_text.get(paper.key)
+        if cached is None:
+            new_papers.append(paper)
+        elif (paper.title, paper.abstract) != cached:
+            changed_papers.append(paper)
+    return new_papers, changed_papers
 
 
 def sync_embeddings(
@@ -68,13 +92,14 @@ def sync_embeddings(
 
     provider = OpenAIEmbeddingProvider(api_key=load_openai_api_key())
     store = PaperStore(vector_dimensions=provider.dimensions)
-    existing = store.existing_keys()
-    pending = [paper for paper in papers if paper.key not in existing]
+    cached_text = {key: (title, abstract) for key, title, abstract in store.list_metadata()}
+    new_papers, changed_papers = _partition_by_change(papers, cached_text)
+    pending = new_papers + changed_papers
 
     if verbose:
         print(
-            f"  {len(papers)} papers returned by Zotero, {len(existing)} cached, "
-            f"{len(pending)} to embed."
+            f"  {len(papers)} papers returned by Zotero, {len(cached_text)} cached, "
+            f"{len(new_papers)} new, {len(changed_papers)} with edited text to re-embed."
         )
 
     tracker = CostTracker(model=provider.model_name)
@@ -94,7 +119,9 @@ def sync_embeddings(
             per_paper_tokens = [count_tokens(text, provider.model_name) for text in texts]
             result = provider.embed_batch(texts)
             tracker.record(tokens=result.tokens_used, paper_count=len(batch))
-            store.add(
+            # ``upsert`` appends brand-new keys and replaces the row of any paper
+            # whose text changed, so a re-embedded paper never duplicates a row.
+            store.upsert(
                 papers=batch,
                 vectors=result.vectors,
                 token_per_paper=per_paper_tokens,
@@ -114,11 +141,12 @@ def sync_embeddings(
 
     return store, SyncResult(
         total_in_zotero=len(papers),
-        already_present=len(existing),
+        already_present=len(cached_text),
         newly_embedded=len(pending),
         tokens_used=tracker.total_tokens,
         cost=tracker.total_cost,
-        new_keys=[paper.key for paper in pending],
+        new_keys=[paper.key for paper in new_papers],
+        updated_keys=[paper.key for paper in changed_papers],
     )
 
 
@@ -204,11 +232,17 @@ def rebuild_map(
 def add_to_map_incrementally(
     store: PaperStore,
     new_keys: list[str],
+    updated_keys: list[str] | None = None,
     k: int = 8,
     threshold: float = 0.5,
     verbose: bool = True,
 ) -> None:
-    """Attach new papers without moving or reclustering existing papers."""
+    """Attach new papers without moving or reclustering existing papers.
+
+    Papers in ``updated_keys`` were re-embedded because their text changed. Only
+    their displayed title is corrected in place here; their position, links, and
+    topic depend on the fresh vector and are recomputed by a full ``refresh``.
+    """
     migrate_local_data(verbose=verbose)
     if not GRAPH_FILE.exists() or not CLUSTERS_FILE.exists():
         if verbose:
@@ -228,10 +262,6 @@ def add_to_map_incrementally(
     vector_by_key = dict(zip(dataset.keys, dataset.vectors))
     title_by_key = dict(zip(dataset.keys, dataset.titles))
     to_add = [key for key in new_keys if key not in node_ids and key in vector_by_key]
-    if not to_add:
-        if verbose:
-            print("  No new papers to add to the map.")
-        return
 
     for key in to_add:
         neighbors = [
@@ -279,6 +309,24 @@ def add_to_map_incrementally(
         positions[key] = (x, y)
         assignments[key] = int(topic)
 
+    # Correct the displayed title of re-embedded papers already on the map. Their
+    # cached vector is fresh, but repositioning them waits for a full ``refresh``.
+    updated_titles = 0
+    for key in set(updated_keys or ()):
+        if key not in node_ids or key not in title_by_key:
+            continue
+        fresh_title = title_by_key[key]
+        for node in graph_data["nodes"]:
+            if node["id"] == key and node.get("title") != fresh_title:
+                node["title"] = fresh_title
+                updated_titles += 1
+                break
+
+    if not to_add and not updated_titles:
+        if verbose:
+            print("  No new or edited papers to apply to the map.")
+        return
+
     counts = Counter(assignments.values())
     for topic_data in clusters_data["topics"]:
         topic_data["paper_count"] = int(counts.get(topic_data["id"], 0))
@@ -288,16 +336,28 @@ def add_to_map_incrementally(
         json.dumps(clusters_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     if verbose:
-        print(f"  Added {len(to_add)} papers using neighbor-derived topic and position.")
+        summary = []
+        if to_add:
+            summary.append(f"added {len(to_add)} new papers")
+        if updated_titles:
+            summary.append(f"refreshed {updated_titles} edited titles (run refresh to reposition)")
+        print(f"  Map updated: {', '.join(summary)}.")
 
 
 def sync_library(k: int = 8, threshold: float = 0.5, verbose: bool = True) -> None:
-    """Run the fast daily workflow: embed and attach only new papers."""
+    """Run the fast daily workflow: embed and attach new or edited papers."""
     store, result = sync_embeddings(verbose=verbose)
-    if not result.new_keys and GRAPH_FILE.exists():
+    if not result.new_keys and not result.updated_keys and GRAPH_FILE.exists():
         if verbose:
             print("\nNothing new: the map is already up to date.")
         return
     if verbose:
-        print("\n-> Adding new papers to the map...")
-    add_to_map_incrementally(store, result.new_keys, k=k, threshold=threshold, verbose=verbose)
+        print("\n-> Updating the map...")
+    add_to_map_incrementally(
+        store,
+        result.new_keys,
+        updated_keys=result.updated_keys,
+        k=k,
+        threshold=threshold,
+        verbose=verbose,
+    )

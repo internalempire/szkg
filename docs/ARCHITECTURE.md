@@ -9,7 +9,7 @@ should remain stable when the project evolves.
 - Keep the research library read-only: the application reads Zotero metadata
   and never edits Zotero items.
 - Keep personal derived data local and outside version control.
-- Pay for an embedding only once per Zotero item key.
+- Pay for an embedding only when a paper's title or abstract is new or edited.
 - Make daily updates fast without moving the existing map.
 - Allow a periodic full rebuild for better global grouping.
 - Render thousands of nodes and edges on the GPU, while retaining a proven CPU
@@ -51,7 +51,8 @@ Zotero Web API
 
 - `store.py` stores item key, title, abstract, source version, vector metadata,
   and embedding vector in `data/lancedb/`. Zotero item keys are the cache
-  identity: an existing key is not embedded again.
+  identity: an existing key is re-embedded only when its title or abstract
+  changed, and `upsert` then replaces the row in place instead of duplicating it.
 - `graph.py` connects each paper to up to eight neighbors whose cosine
   similarity is at least `0.5`. Endpoint pairs are sorted to turn asymmetric
   k-nearest-neighbor results into deduplicated undirected edges.
@@ -66,13 +67,15 @@ Zotero Web API
 ### Orchestration
 
 - `sync_embeddings()` reads only Zotero changes when a saved version is
-  available, skips cached keys, embeds new papers in batches, and advances
-  `state.json`.
+  available, embeds papers that are new or whose title/abstract changed, skips
+  cached papers whose text is unchanged, and advances `state.json`.
 - `rebuild_map()` recalculates graph, topics, labels, and positions for every
   cached paper. It does not re-embed existing keys.
 - `add_to_map_incrementally()` gives each new paper neighbor links, a
   similarity-weighted topic, and a position near its neighbors. Existing nodes
-  do not move, so this is fast but less globally accurate than a rebuild.
+  do not move, so this is fast but less globally accurate than a rebuild. For a
+  re-embedded paper it corrects only the displayed title; its links, topic, and
+  position are recomputed by the next `rebuild_map()`.
 - `sync_library()` combines embedding synchronization and incremental map
   insertion.
 - `data_migration.py` upgrades JSON metadata from the original Italian schema

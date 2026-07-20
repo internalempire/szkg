@@ -186,8 +186,10 @@ python app.py sync
 ```
 
 `sync` asks Zotero only for items modified after the stored library version.
-It embeds only unseen keys, then places each new paper near its existing semantic
-neighbors. Existing topic assignments and positions remain stable.
+It embeds papers that are new or whose title or abstract you edited, then places
+each new paper near its existing semantic neighbors. Existing topic assignments
+and positions remain stable; an edited paper keeps its place until the next
+`refresh` moves it to match its new text.
 
 Occasionally run:
 
@@ -249,9 +251,10 @@ modified, and the migration performs no network or paid API request.
 
 ## Cost behavior
 
-Only new embeddings incur an OpenAI API cost. Before sending text, the app
+Only new or edited papers incur an OpenAI API cost. Before sending text, the app
 estimates tokens and price; after the request it records the API-reported token
-usage. Existing Zotero keys are skipped through the LanceDB cache.
+usage. Cached papers whose title and abstract are unchanged are skipped through
+the LanceDB cache, so an unrelated change such as a tag never costs anything.
 
 Prices can change. The local pricing table used for estimates is intentionally
 centralized in `costs.py`; verify it against current provider pricing when exact
