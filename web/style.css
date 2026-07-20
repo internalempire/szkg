@@ -1,24 +1,14 @@
 /* Shared layout and visual theme for both graph renderers. */
 
+/* The viewer always uses the dark palette, independent of the OS theme. */
 :root {
-  --bg: #f4f4f2;
-  --panel: #ffffff;
-  --ink: #1f2328;
-  --muted: #6b7280;
-  --border: #e2e2df;
-  --accent: #2563eb;
-  --canvas: #fbfbf9;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e1119;
-    --panel: #141a26;
-    --ink: #e6e7e9;
-    --muted: #8a93a6;
-    --border: #232a38;
-    --accent: #5b8cff;
-    --canvas: #0a0e1a;
-  }
+  --bg: #0e1119;
+  --panel: #141a26;
+  --ink: #e6e7e9;
+  --muted: #8a93a6;
+  --border: #232a38;
+  --accent: #5b8cff;
+  --canvas: #0a0e1a;
 }
 
 * { box-sizing: border-box; }
