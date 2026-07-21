@@ -19,6 +19,8 @@ class Paper:
     abstract: str
     item_type: str
     version: int
+    # Author names for display only; never part of the embedded semantic text.
+    authors: str = ""
 
     @property
     def has_abstract(self) -> bool:
@@ -48,6 +50,25 @@ class ZoteroSource(ABC):
 
 
 _EXCLUDED_ITEM_TYPES = {"attachment", "note", "annotation"}
+
+
+def format_authors(creators: list[dict]) -> str:
+    """Join a Zotero item's author names into a single display string.
+
+    Only ``author`` creators are used; editors and other roles are ignored. A
+    creator may carry ``firstName``/``lastName`` or a single ``name`` field.
+    """
+    names: list[str] = []
+    for creator in creators or []:
+        if creator.get("creatorType") != "author":
+            continue
+        name = (creator.get("name") or "").strip()
+        if not name:
+            parts = [creator.get("firstName", ""), creator.get("lastName", "")]
+            name = " ".join(part.strip() for part in parts if part and part.strip())
+        if name:
+            names.append(name)
+    return ", ".join(names)
 
 
 class PyzoteroSource(ZoteroSource):
@@ -92,6 +113,7 @@ class PyzoteroSource(ZoteroSource):
                     abstract=(data.get("abstractNote") or "").strip(),
                     item_type=item_type,
                     version=int(data.get("version", 0)),
+                    authors=format_authors(data.get("creators", [])),
                 )
             )
         return papers

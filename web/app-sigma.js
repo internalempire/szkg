@@ -8,18 +8,27 @@ const GRAPH_DATA_URL = "../data/graph.json";
 const CLUSTER_DATA_URL = "../data/clusters.json";
 const USE_CURVED_EDGES = new URLSearchParams(location.search).get("edges") !== "straight";
 const MAX_TOPIC_LABELS = 14;
+const METADATA_URL = "../data/metadata.json";
 
 let topicColors = new Map(), topicRgbColors = new Map(), topicLabels = new Map();
 let graph, renderer, currentTopics = [];
 let activeTopic = null, selectedNode = null, selectedEdge = null;
 let highlightedNodes = null, highlightedEdges = null;
 let hiddenTopics = new Set(), showWeakAssignments = true, topicLabelElements = [];
+let paperMeta = {};
 
 async function readJson(path) {
   const sep = path.includes("?") ? "&" : "?";
   const response = await fetch(`${path}${sep}t=${Date.now()}`, { cache: "no-store" });
   if (!response.ok) throw new Error(`Could not read ${path}`);
   return response.json();
+}
+
+// Display metadata (authors, abstract) is optional: an older map without the
+// file simply shows the panel without those fields.
+async function loadMetadata() {
+  try { paperMeta = await readJson(METADATA_URL); }
+  catch { paperMeta = {}; }
 }
 
 function hslToRgb(h, s, l) {
@@ -186,12 +195,19 @@ function escapeHtml(s) { const d = document.createElement("div"); d.textContent 
 function showInfo(id, boxId) {
   if (!graph.hasNode(id)) return;
   const n = graph.getNodeAttributes(id), box = document.getElementById(boxId);
+  const meta = paperMeta[id] || {};
+  const authors = (meta.authors || "").trim();
+  const abstract = (meta.abstract || "").trim();
   box.querySelector(".panel-body").innerHTML = `
-    <p class="paper-title">${escapeHtml(n.title)}</p><p class="detail-row">
-    <span class="topic-chip" style="background:${topicColor(n.cluster)}">${escapeHtml(topicLabels.get(n.cluster) || "—")}</span>
-    ${n.weak_assignment ? '<span class="weak-badge">weak assignment</span>' : ""}</p>
-    <p class="detail-row">Links: ${graph.degree(id)}</p>
-    <p class="detail-row"><a href="zotero://select/library/items/${encodeURIComponent(id)}">Open in Zotero</a></p>`;
+    <p class="paper-title">${escapeHtml(n.title)}</p>
+    ${authors ? `<p class="authors">${escapeHtml(authors)}</p>` : ""}
+    <div class="meta-row">
+      <span class="topic-chip" style="background:${topicColor(n.cluster)}">${escapeHtml(topicLabels.get(n.cluster) || "—")}</span>
+      ${n.weak_assignment ? '<span class="weak-badge">weak assignment</span>' : ""}
+      <span class="link-count">${graph.degree(id)} links</span>
+    </div>
+    <div class="abstract">${abstract ? escapeHtml(abstract) : '<span class="empty">No abstract available.</span>'}</div>
+    <p class="zotero-link"><a href="zotero://select/library/items/${encodeURIComponent(id)}">Open in Zotero ↗</a></p>`;
   box.classList.remove("hidden");
 }
 function hidePanels() {
@@ -359,7 +375,7 @@ function updateExistingColors(data) {
 
 async function refreshData() {
   try {
-    const [data, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL)]);
+    const [data, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL), loadMetadata()]);
     validateCoordinates(data.nodes); currentTopics = topics.topics; generateColors(currentTopics);
     const existing = new Set(graph.nodes());
     const newNodes = data.nodes.filter((n) => !existing.has(n.id)), newNodeIds = new Set(newNodes.map((n) => n.id));
@@ -382,7 +398,7 @@ async function refreshData() {
 
 async function start() {
   try {
-    const [data, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL)]);
+    const [data, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL), loadMetadata()]);
     currentTopics = topics.topics; generateColors(currentTopics); graph = buildGraph(data);
     createRenderer(); bindRendererEvents(); bindControls(); buildLegend(currentTopics);
     updateStatistics(); createTopicLabels(currentTopics);

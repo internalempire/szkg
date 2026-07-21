@@ -8,6 +8,7 @@ recomputes the globally optimized graph, topics, and layout.
 from __future__ import annotations
 
 import json
+import os
 import random
 from collections import Counter
 from dataclasses import dataclass, field
@@ -16,6 +17,11 @@ from clustering import ClusteringResult, cluster_papers
 from config import load_openai_api_key, load_zotero_config
 from costs import CostTracker, count_tokens, estimate_cost, format_usd
 from data_migration import CLUSTERS_FILE, GRAPH_FILE, STATE_FILE, migrate_local_data
+
+# Display-only metadata (title, authors, abstract) for the viewer's detail panel.
+# Kept separate from the embedding cache and graph.json so the vector store and
+# the renderer-neutral graph contract stay untouched.
+METADATA_FILE = GRAPH_FILE.parent / "metadata.json"
 from embeddings import OpenAIEmbeddingProvider
 from graph import build_graph
 from layout import calculate_positions
@@ -34,6 +40,31 @@ def _load_state() -> dict:
 def _save_state(state: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+
+
+def _update_metadata_file(papers: list) -> None:
+    """Merge display metadata for the given papers into ``data/metadata.json``.
+
+    The viewer reads this file to show authors and the full abstract in the paper
+    detail panel. A full Zotero read covers every paper; an incremental read only
+    refreshes the papers it returned, leaving the rest untouched.
+    """
+    metadata: dict = {}
+    if METADATA_FILE.exists():
+        try:
+            metadata = json.loads(METADATA_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            metadata = {}
+    for paper in papers:
+        metadata[paper.key] = {
+            "title": paper.title,
+            "authors": paper.authors,
+            "abstract": paper.abstract,
+        }
+    METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = METADATA_FILE.with_name(METADATA_FILE.name + ".tmp")
+    temporary.write_text(json.dumps(metadata, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(temporary, METADATA_FILE)
 
 
 @dataclass
@@ -73,15 +104,20 @@ def _partition_by_change(
 
 
 def sync_embeddings(
-    limit: int | None = None, verbose: bool = True
+    limit: int | None = None, verbose: bool = True, force_full: bool = False
 ) -> tuple[PaperStore, SyncResult]:
-    """Fetch and embed only papers that are not already cached locally."""
+    """Fetch and embed only papers that are not already cached locally.
+
+    ``force_full`` fetches the whole library instead of only the changes since the
+    saved version, so display metadata for every paper is refreshed (used by
+    ``refresh``). It does not change what is embedded: cached papers are skipped.
+    """
     migrate_local_data(verbose=verbose)
     source = PyzoteroSource(load_zotero_config())
     state = _load_state()
     known_version = state.get("last_zotero_version")
 
-    if known_version is not None and limit is None:
+    if known_version is not None and limit is None and not force_full:
         if verbose:
             print(f"-> Asking Zotero for changes since version {known_version}...")
         papers, current_version = source.fetch_since(known_version)
@@ -89,6 +125,9 @@ def sync_embeddings(
         if verbose:
             print("-> Downloading the paper list from Zotero...")
         papers, current_version = source.fetch_all(limit=limit)
+
+    # Refresh the viewer's display metadata (authors, abstract) for these papers.
+    _update_metadata_file(papers)
 
     provider = OpenAIEmbeddingProvider(api_key=load_openai_api_key())
     store = PaperStore(vector_dimensions=provider.dimensions)

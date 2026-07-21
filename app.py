@@ -18,7 +18,7 @@ def command_sync(_args: argparse.Namespace) -> None:
 
 
 def command_refresh(_args: argparse.Namespace) -> None:
-    store, _result = sync_embeddings(verbose=True)
+    store, _result = sync_embeddings(verbose=True, force_full=True)
     rebuild_map(store, verbose=True)
     print("\nDone. Reload the browser page to see the rebuilt layout.")
 

@@ -1,0 +1,52 @@
+"""Network-free tests for author formatting and display-metadata writing."""
+
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+import pipeline
+from zotero_source import Paper, format_authors
+
+
+class AuthorFormattingTests(unittest.TestCase):
+    def test_uses_author_creators_only(self) -> None:
+        creators = [
+            {"creatorType": "author", "firstName": "Jane", "lastName": "Smith"},
+            {"creatorType": "editor", "firstName": "Ed", "lastName": "Itor"},
+            {"creatorType": "author", "name": "World Health Organization"},
+        ]
+        self.assertEqual(format_authors(creators), "Jane Smith, World Health Organization")
+
+    def test_no_authors_returns_empty(self) -> None:
+        self.assertEqual(format_authors([]), "")
+        self.assertEqual(format_authors([{"creatorType": "editor", "lastName": "Only"}]), "")
+
+
+class MetadataFileTests(unittest.TestCase):
+    def test_merge_writes_and_preserves_existing_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            original = pipeline.METADATA_FILE
+            pipeline.METADATA_FILE = Path(directory) / "metadata.json"
+            try:
+                pipeline._update_metadata_file(
+                    [Paper("AAAAAAAA", "First title", "abstract one", "journalArticle", 1, "Jane Smith")]
+                )
+                pipeline._update_metadata_file(
+                    [Paper("BBBBBBBB", "Second title", "abstract two", "journalArticle", 1, "John Doe")]
+                )
+                data = json.loads(pipeline.METADATA_FILE.read_text(encoding="utf-8"))
+                self.assertEqual(set(data), {"AAAAAAAA", "BBBBBBBB"})
+                self.assertEqual(
+                    data["AAAAAAAA"],
+                    {"title": "First title", "authors": "Jane Smith", "abstract": "abstract one"},
+                )
+                self.assertEqual(data["BBBBBBBB"]["authors"], "John Doe")
+            finally:
+                pipeline.METADATA_FILE = original
+
+
+if __name__ == "__main__":
+    unittest.main()
