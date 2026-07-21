@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -19,9 +20,10 @@ class Paper:
     abstract: str
     item_type: str
     version: int
-    # Author names and publication venue for display only; never embedded.
+    # Author names, publication venue, and year for display only; never embedded.
     authors: str = ""
     journal: str = ""
+    year: str = ""
 
     @property
     def has_abstract(self) -> bool:
@@ -89,6 +91,15 @@ def extract_publication(data: dict) -> str:
     return ""
 
 
+_YEAR_PATTERN = re.compile(r"(1[5-9]\d{2}|20\d{2})")
+
+
+def extract_year(date: str) -> str:
+    """Pull a four-digit publication year out of Zotero's free-form date field."""
+    match = _YEAR_PATTERN.search(date or "")
+    return match.group(0) if match else ""
+
+
 class PyzoteroSource(ZoteroSource):
     """Read a user or group library through Zotero's Web API."""
 
@@ -133,6 +144,7 @@ class PyzoteroSource(ZoteroSource):
                     version=int(data.get("version", 0)),
                     authors=format_authors(data.get("creators", [])),
                     journal=extract_publication(data),
+                    year=extract_year(data.get("date", "")),
                 )
             )
         return papers

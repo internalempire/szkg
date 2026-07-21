@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 import pipeline
-from zotero_source import Paper, extract_publication, format_authors
+from zotero_source import Paper, extract_publication, extract_year, format_authors
 
 
 class AuthorFormattingTests(unittest.TestCase):
@@ -33,6 +33,15 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(extract_publication({}), "")
 
 
+class YearTests(unittest.TestCase):
+    def test_extracts_four_digit_year_from_various_formats(self) -> None:
+        self.assertEqual(extract_year("2019-05-12"), "2019")
+        self.assertEqual(extract_year("May 2019"), "2019")
+        self.assertEqual(extract_year("c1998"), "1998")
+        self.assertEqual(extract_year(""), "")
+        self.assertEqual(extract_year("in press"), "")
+
+
 class MetadataFileTests(unittest.TestCase):
     def test_merge_writes_and_preserves_existing_entries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -49,7 +58,8 @@ class MetadataFileTests(unittest.TestCase):
                 self.assertEqual(set(data), {"AAAAAAAA", "BBBBBBBB"})
                 self.assertEqual(
                     data["AAAAAAAA"],
-                    {"title": "First title", "authors": "Jane Smith", "journal": "", "abstract": "abstract one"},
+                    {"title": "First title", "authors": "Jane Smith", "journal": "",
+                     "year": "", "abstract": "abstract one"},
                 )
                 self.assertEqual(data["BBBBBBBB"]["authors"], "John Doe")
             finally:

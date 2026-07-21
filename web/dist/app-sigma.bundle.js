@@ -10309,7 +10309,7 @@ void main() {
     const color = edgeColor(topicA, topicB, 0.28);
     return {
       weight: e.weight,
-      size: 0.3 + (e.weight || 0.5) * 0.7,
+      size: 0.8 + (e.weight || 0.5) * 0.9,
       color,
       baseColor: color,
       curvature: edgeCurvature(edgeId(e)),
@@ -10369,28 +10369,44 @@ void main() {
     ]
   });
   var CurvedEdgeProgram = createEdgeCurveProgram({ curvatureAttribute: "curvature", defaultCurvature: 0.08 });
+  function withMultisampledContexts(build) {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function(type, attributes) {
+      if (type === "webgl2" || type === "webgl" || type === "experimental-webgl") {
+        attributes = Object.assign({}, attributes, { antialias: true });
+      }
+      return original.call(this, type, attributes);
+    };
+    try {
+      build();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = original;
+    }
+  }
   function createRenderer() {
-    renderer = new Sigma(graph, document.getElementById("cy"), {
-      renderLabels: false,
-      renderEdgeLabels: false,
-      enableEdgeEvents: true,
-      hideEdgesOnMove: false,
-      hideLabelsOnMove: false,
-      zIndex: true,
-      stagePadding: 30,
-      minCameraRatio: 5e-3,
-      maxCameraRatio: 33.333,
-      doubleClickZoomingRatio: 1.8,
-      doubleClickZoomingDuration: 250,
-      zoomToSizeRatioFunction: () => 1,
-      itemSizesReference: "screen",
-      minEdgeThickness: 0.3,
-      defaultNodeType: "border",
-      defaultEdgeType: USE_CURVED_EDGES ? "curve" : "line",
-      nodeProgramClasses: { border: BorderNodeProgram },
-      edgeProgramClasses: USE_CURVED_EDGES ? { curve: CurvedEdgeProgram } : {},
-      nodeReducer: reduceNode,
-      edgeReducer: reduceEdge
+    withMultisampledContexts(() => {
+      renderer = new Sigma(graph, document.getElementById("cy"), {
+        renderLabels: false,
+        renderEdgeLabels: false,
+        enableEdgeEvents: true,
+        hideEdgesOnMove: false,
+        hideLabelsOnMove: false,
+        zIndex: true,
+        stagePadding: 30,
+        minCameraRatio: 5e-3,
+        maxCameraRatio: 33.333,
+        doubleClickZoomingRatio: 1.8,
+        doubleClickZoomingDuration: 250,
+        zoomToSizeRatioFunction: () => 1,
+        itemSizesReference: "screen",
+        minEdgeThickness: 1.1,
+        defaultNodeType: "border",
+        defaultEdgeType: USE_CURVED_EDGES ? "curve" : "line",
+        nodeProgramClasses: { border: BorderNodeProgram },
+        edgeProgramClasses: USE_CURVED_EDGES ? { curve: CurvedEdgeProgram } : {},
+        nodeReducer: reduceNode,
+        edgeReducer: reduceEdge
+      });
     });
   }
   function refreshRenderer() {
@@ -10445,11 +10461,13 @@ void main() {
     const meta = paperMeta[id] || {};
     const authors = (meta.authors || "").trim();
     const journal = (meta.journal || "").trim();
+    const year = (meta.year || "").trim();
+    const venue = [journal, year].filter(Boolean).join(" \xB7 ");
     const abstract = (meta.abstract || "").trim();
     box.querySelector(".panel-body").innerHTML = `
     <p class="paper-title">${escapeHtml(n.title)}</p>
     ${authors ? `<p class="authors">${escapeHtml(authors)}</p>` : ""}
-    ${journal ? `<p class="journal">${escapeHtml(journal)}</p>` : ""}
+    ${venue ? `<p class="journal">${escapeHtml(venue)}</p>` : ""}
     <div class="meta-row">
       <span class="topic-chip" style="background:${topicColor(n.cluster)}">${escapeHtml(topicLabels.get(n.cluster) || "\u2014")}</span>
       ${n.weak_assignment ? '<span class="weak-badge">weak assignment</span>' : ""}
