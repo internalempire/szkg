@@ -19,8 +19,9 @@ class Paper:
     abstract: str
     item_type: str
     version: int
-    # Author names for display only; never part of the embedded semantic text.
+    # Author names and publication venue for display only; never embedded.
     authors: str = ""
+    journal: str = ""
 
     @property
     def has_abstract(self) -> bool:
@@ -71,6 +72,23 @@ def format_authors(creators: list[dict]) -> str:
     return ", ".join(names)
 
 
+# Zotero stores the publication venue under different fields per item type.
+_PUBLICATION_FIELDS = (
+    "publicationTitle", "proceedingsTitle", "conferenceName", "bookTitle",
+    "websiteTitle", "blogTitle", "encyclopediaTitle", "dictionaryTitle",
+    "repository", "publisher", "institution", "university",
+)
+
+
+def extract_publication(data: dict) -> str:
+    """Return the first available publication/venue name for a Zotero item."""
+    for field in _PUBLICATION_FIELDS:
+        value = (data.get(field) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 class PyzoteroSource(ZoteroSource):
     """Read a user or group library through Zotero's Web API."""
 
@@ -114,6 +132,7 @@ class PyzoteroSource(ZoteroSource):
                     item_type=item_type,
                     version=int(data.get("version", 0)),
                     authors=format_authors(data.get("creators", [])),
+                    journal=extract_publication(data),
                 )
             )
         return papers

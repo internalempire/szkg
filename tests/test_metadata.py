@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 import pipeline
-from zotero_source import Paper, format_authors
+from zotero_source import Paper, extract_publication, format_authors
 
 
 class AuthorFormattingTests(unittest.TestCase):
@@ -23,6 +23,14 @@ class AuthorFormattingTests(unittest.TestCase):
     def test_no_authors_returns_empty(self) -> None:
         self.assertEqual(format_authors([]), "")
         self.assertEqual(format_authors([{"creatorType": "editor", "lastName": "Only"}]), "")
+
+
+class PublicationTests(unittest.TestCase):
+    def test_prefers_journal_then_falls_back(self) -> None:
+        self.assertEqual(extract_publication({"publicationTitle": "The Lancet"}), "The Lancet")
+        self.assertEqual(extract_publication({"bookTitle": "A Handbook"}), "A Handbook")
+        self.assertEqual(extract_publication({"publisher": "MIT Press"}), "MIT Press")
+        self.assertEqual(extract_publication({}), "")
 
 
 class MetadataFileTests(unittest.TestCase):
@@ -41,7 +49,7 @@ class MetadataFileTests(unittest.TestCase):
                 self.assertEqual(set(data), {"AAAAAAAA", "BBBBBBBB"})
                 self.assertEqual(
                     data["AAAAAAAA"],
-                    {"title": "First title", "authors": "Jane Smith", "abstract": "abstract one"},
+                    {"title": "First title", "authors": "Jane Smith", "journal": "", "abstract": "abstract one"},
                 )
                 self.assertEqual(data["BBBBBBBB"]["authors"], "John Doe")
             finally:

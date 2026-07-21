@@ -59,6 +59,7 @@ def _update_metadata_file(papers: list) -> None:
         metadata[paper.key] = {
             "title": paper.title,
             "authors": paper.authors,
+            "journal": paper.journal,
             "abstract": paper.abstract,
         }
     METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)

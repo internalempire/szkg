@@ -10444,10 +10444,12 @@ void main() {
     const n = graph.getNodeAttributes(id), box = document.getElementById(boxId);
     const meta = paperMeta[id] || {};
     const authors = (meta.authors || "").trim();
+    const journal = (meta.journal || "").trim();
     const abstract = (meta.abstract || "").trim();
     box.querySelector(".panel-body").innerHTML = `
     <p class="paper-title">${escapeHtml(n.title)}</p>
     ${authors ? `<p class="authors">${escapeHtml(authors)}</p>` : ""}
+    ${journal ? `<p class="journal">${escapeHtml(journal)}</p>` : ""}
     <div class="meta-row">
       <span class="topic-chip" style="background:${topicColor(n.cluster)}">${escapeHtml(topicLabels.get(n.cluster) || "\u2014")}</span>
       ${n.weak_assignment ? '<span class="weak-badge">weak assignment</span>' : ""}
