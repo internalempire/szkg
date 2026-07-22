@@ -9,14 +9,15 @@ from __future__ import annotations
 import json
 
 from data_migration import GRAPH_FILE
-from pipeline import rebuild_map, sync_embeddings
+from pipeline import commit_sync_state, rebuild_map, sync_embeddings
 
 
 def main() -> None:
     print("=" * 72, "STEP 1 - Synchronize embeddings", "=" * 72, sep="\n")
-    store, _sync_result = sync_embeddings(limit=None, verbose=True)
+    store, sync_result = sync_embeddings(limit=None, verbose=True)
     print("\n" + "=" * 72, "STEP 2 - Build graph and topics", "=" * 72, sep="\n")
     result = rebuild_map(store, k=8, threshold=0.5, minimum_topic_size=5, verbose=True)
+    commit_sync_state(sync_result)
 
     dataset = store.read_all()
     examples: dict[int, list[str]] = {}

@@ -68,6 +68,21 @@ class StoreUpsertTests(unittest.TestCase):
             store.upsert([_paper("NEWKEY01", "Fresh", "text", 1)], [[0.0, 1.0, 0.0]], [4], "test-model")
             self.assertEqual(store.count(), 1)
 
+    def test_rejects_incompatible_vector_dimensions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            PaperStore(vector_dimensions=3, data_directory=path)
+            with self.assertRaisesRegex(SystemExit, "stored vector dimensions: 3"):
+                PaperStore(vector_dimensions=4, data_directory=path)
+
+    def test_rejects_mixed_embedding_models(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            store = PaperStore(vector_dimensions=3, data_directory=path)
+            store.add([_paper("ABC123", "Title", "text", 1)], [[1.0, 0.0, 0.0]], [5], "model-a")
+            with self.assertRaisesRegex(SystemExit, r"stored model\(s\): model-a"):
+                PaperStore(vector_dimensions=3, data_directory=path, expected_model="model-b")
+
 
 if __name__ == "__main__":
     unittest.main()

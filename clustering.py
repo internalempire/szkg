@@ -59,16 +59,22 @@ def _reduce_dimensions(vectors: np.ndarray) -> np.ndarray:
 
 def _extract_labels(texts: list[str], assignments: np.ndarray) -> dict[int, list[str]]:
     """Calculate the five strongest class-based TF-IDF words per topic."""
+    topic_ids = sorted(topic for topic in set(assignments.tolist()) if topic != NOISE_CLUSTER)
+    if not topic_ids:
+        return {}
     vectorizer = CountVectorizer(
         stop_words=list(STOPWORDS),
         token_pattern=r"(?u)\b[a-zA-Zàèéìòù][a-zA-Zàèéìòù]{2,}\b",
         min_df=1,
     )
-    counts = vectorizer.fit_transform(texts)
+    try:
+        counts = vectorizer.fit_transform(texts)
+    except ValueError:
+        # A library made only of stop words or scripts outside the tokenizer's
+        # current alphabet can still be clustered; it simply receives fallback
+        # topic names instead of aborting the complete refresh.
+        return {topic: [] for topic in topic_ids}
     vocabulary = np.array(vectorizer.get_feature_names_out())
-    topic_ids = sorted(topic for topic in set(assignments.tolist()) if topic != NOISE_CLUSTER)
-    if not topic_ids:
-        return {}
 
     counts_by_topic = [
         np.asarray(counts[assignments == topic].sum(axis=0)).ravel()

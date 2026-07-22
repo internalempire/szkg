@@ -8,8 +8,8 @@ recomputes the globally optimized graph, topics, and layout.
 from __future__ import annotations
 
 import json
-import os
 import random
+import uuid
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -17,18 +17,22 @@ from clustering import ClusteringResult, cluster_papers
 from config import load_openai_api_key, load_zotero_config
 from costs import CostTracker, count_tokens, estimate_cost, format_usd
 from data_migration import CLUSTERS_FILE, GRAPH_FILE, STATE_FILE, migrate_local_data
-
-# Display-only metadata (title, authors, abstract) for the viewer's detail panel.
-# Kept separate from the embedding cache and graph.json so the vector store and
-# the renderer-neutral graph contract stay untouched.
-METADATA_FILE = GRAPH_FILE.parent / "metadata.json"
-from embeddings import OpenAIEmbeddingProvider
+from embeddings import (
+    DEFAULT_EMBEDDING_DIMENSIONS,
+    DEFAULT_EMBEDDING_MODEL,
+    OpenAIEmbeddingProvider,
+)
 from graph import build_graph
+from json_io import write_json_atomically
 from layout import calculate_positions
 from store import PaperStore
 from zotero_source import PyzoteroSource
 
 
+# Display-only metadata (title, authors, abstract) for the viewer's detail panel.
+# Kept separate from the embedding cache and graph.json so the vector store and
+# the renderer-neutral graph contract stay untouched.
+METADATA_FILE = GRAPH_FILE.parent / "metadata.json"
 _PROGRESS_BATCH_SIZE = 200
 
 
@@ -38,8 +42,7 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    write_json_atomically(STATE_FILE, state)
 
 
 def _update_metadata_file(papers: list) -> None:
@@ -63,10 +66,7 @@ def _update_metadata_file(papers: list) -> None:
             "year": paper.year,
             "abstract": paper.abstract,
         }
-    METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary = METADATA_FILE.with_name(METADATA_FILE.name + ".tmp")
-    temporary.write_text(json.dumps(metadata, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(temporary, METADATA_FILE)
+    write_json_atomically(METADATA_FILE, metadata, indent=None)
 
 
 @dataclass
@@ -78,6 +78,7 @@ class SyncResult:
     newly_embedded: int
     tokens_used: int
     cost: float
+    current_version: int
     new_keys: list[str] = field(default_factory=list)
     updated_keys: list[str] = field(default_factory=list)
 
@@ -128,11 +129,15 @@ def sync_embeddings(
             print("-> Downloading the paper list from Zotero...")
         papers, current_version = source.fetch_all(limit=limit)
 
-    # Refresh the viewer's display metadata (authors, abstract) for these papers.
+    # Refresh the viewer's display metadata for the papers returned by Zotero.
+    # Deletion pruning remains a separate operation because the vector cache and
+    # map must be reconciled in the same deliberate transaction.
     _update_metadata_file(papers)
 
-    provider = OpenAIEmbeddingProvider(api_key=load_openai_api_key())
-    store = PaperStore(vector_dimensions=provider.dimensions)
+    store = PaperStore(
+        vector_dimensions=DEFAULT_EMBEDDING_DIMENSIONS,
+        expected_model=DEFAULT_EMBEDDING_MODEL,
+    )
     cached_text = {key: (title, abstract) for key, title, abstract in store.list_metadata()}
     new_papers, changed_papers = _partition_by_change(papers, cached_text)
     pending = new_papers + changed_papers
@@ -143,8 +148,12 @@ def sync_embeddings(
             f"{len(new_papers)} new, {len(changed_papers)} with edited text to re-embed."
         )
 
-    tracker = CostTracker(model=provider.model_name)
+    tracker = CostTracker(model=DEFAULT_EMBEDDING_MODEL)
     if pending:
+        # Loading the key and constructing the client are unnecessary when the
+        # cache is already current. This keeps zero-cost syncs independent from
+        # OpenAI configuration.
+        provider = OpenAIEmbeddingProvider(api_key=load_openai_api_key())
         all_texts = [paper.combined_text() for paper in pending]
         estimated_tokens = [count_tokens(text, provider.model_name) for text in all_texts]
         if verbose:
@@ -176,19 +185,45 @@ def sync_embeddings(
     elif verbose:
         print("  No new papers: no API request and zero cost.")
 
-    if limit is None:
-        state["last_zotero_version"] = current_version
-        _save_state(state)
-
     return store, SyncResult(
         total_in_zotero=len(papers),
         already_present=len(cached_text),
         newly_embedded=len(pending),
         tokens_used=tracker.total_tokens,
         cost=tracker.total_cost,
+        current_version=current_version,
         new_keys=[paper.key for paper in new_papers],
         updated_keys=[paper.key for paper in changed_papers],
     )
+
+
+def commit_sync_state(result: SyncResult) -> None:
+    """Advance Zotero state only after all requested local outputs succeeded."""
+    state = _load_state()
+    state["last_zotero_version"] = result.current_version
+    _save_state(state)
+
+
+def _publish_map(graph_data: dict, clusters_data: dict) -> None:
+    """Publish a matching pair of atomically written map documents."""
+    revision = uuid.uuid4().hex
+    graph_data["revision"] = revision
+    clusters_data["revision"] = revision
+    # Readers reject mismatched revisions. Publishing the graph last makes it
+    # the effective commit marker for a complete map snapshot.
+    write_json_atomically(CLUSTERS_FILE, clusters_data)
+    write_json_atomically(GRAPH_FILE, graph_data)
+
+
+def _load_map_snapshot() -> tuple[dict, dict]:
+    """Load a graph/topic pair only when both belong to one publication."""
+    graph_data = json.loads(GRAPH_FILE.read_text(encoding="utf-8"))
+    clusters_data = json.loads(CLUSTERS_FILE.read_text(encoding="utf-8"))
+    graph_revision = graph_data.get("revision")
+    clusters_revision = clusters_data.get("revision")
+    if graph_revision != clusters_revision:
+        raise ValueError("graph.json and clusters.json belong to different revisions")
+    return graph_data, clusters_data
 
 
 def rebuild_map(
@@ -242,12 +277,6 @@ def rebuild_map(
         {"source": edge.source, "target": edge.target, "weight": edge.weight}
         for edge in edges
     ]
-    GRAPH_FILE.parent.mkdir(parents=True, exist_ok=True)
-    GRAPH_FILE.write_text(
-        json.dumps({"nodes": nodes, "edges": edge_data}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-
     topic_data = [
         {
             "id": topic.id,
@@ -257,13 +286,9 @@ def rebuild_map(
         }
         for topic in result.topics
     ]
-    CLUSTERS_FILE.write_text(
-        json.dumps(
-            {"topics": topic_data, "assignments": {k: int(v) for k, v in key_to_topic.items()}},
-            ensure_ascii=False,
-            indent=2,
-        ) + "\n",
-        encoding="utf-8",
+    _publish_map(
+        {"nodes": nodes, "edges": edge_data},
+        {"topics": topic_data, "assignments": {k: int(v) for k, v in key_to_topic.items()}},
     )
     if verbose:
         print(f"  Saved {GRAPH_FILE.name} ({len(edge_data)} edges) and {CLUSTERS_FILE.name}.")
@@ -291,8 +316,13 @@ def add_to_map_incrementally(
         rebuild_map(store, k=k, threshold=threshold, verbose=verbose)
         return
 
-    graph_data = json.loads(GRAPH_FILE.read_text(encoding="utf-8"))
-    clusters_data = json.loads(CLUSTERS_FILE.read_text(encoding="utf-8"))
+    try:
+        graph_data, clusters_data = _load_map_snapshot()
+    except (OSError, json.JSONDecodeError, ValueError) as error:
+        if verbose:
+            print(f"-> Existing map is incomplete ({error}); performing a full rebuild.")
+        rebuild_map(store, k=k, threshold=threshold, verbose=verbose)
+        return
     assignments = {key: int(value) for key, value in clusters_data.get("assignments", {}).items()}
     label_by_id = {topic["id"]: topic["label"] for topic in clusters_data.get("topics", [])}
     positions = {node["id"]: (node.get("x", 0.0), node.get("y", 0.0)) for node in graph_data["nodes"]}
@@ -331,8 +361,9 @@ def add_to_map_incrementally(
         if neighbor_positions:
             x = sum(point[0] for point in neighbor_positions) / len(neighbor_positions)
             y = sum(point[1] for point in neighbor_positions) / len(neighbor_positions)
-            x += (random.random() - 0.5) * 30
-            y += (random.random() - 0.5) * 30
+            key_random = random.Random(key)
+            x += (key_random.random() - 0.5) * 30
+            y += (key_random.random() - 0.5) * 30
         else:
             x, y = 0.0, 0.0
 
@@ -369,13 +400,15 @@ def add_to_map_incrementally(
         return
 
     counts = Counter(assignments.values())
+    known_topic_ids = {topic_data["id"] for topic_data in clusters_data["topics"]}
+    if -1 in counts and -1 not in known_topic_ids:
+        clusters_data["topics"].append(
+            {"id": -1, "label": "unclassified", "keywords": [], "paper_count": 0}
+        )
     for topic_data in clusters_data["topics"]:
         topic_data["paper_count"] = int(counts.get(topic_data["id"], 0))
     clusters_data["assignments"] = assignments
-    GRAPH_FILE.write_text(json.dumps(graph_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    CLUSTERS_FILE.write_text(
-        json.dumps(clusters_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    _publish_map(graph_data, clusters_data)
     if verbose:
         summary = []
         if to_add:
@@ -388,7 +421,18 @@ def add_to_map_incrementally(
 def sync_library(k: int = 8, threshold: float = 0.5, verbose: bool = True) -> None:
     """Run the fast daily workflow: embed and attach new or edited papers."""
     store, result = sync_embeddings(verbose=verbose)
-    if not result.new_keys and not result.updated_keys and GRAPH_FILE.exists():
+    try:
+        graph_data, _clusters_data = _load_map_snapshot()
+        mapped_keys = {node["id"] for node in graph_data.get("nodes", [])}
+        missing_keys = sorted(store.existing_keys() - mapped_keys)
+    except (OSError, json.JSONDecodeError, ValueError, KeyError, TypeError):
+        # A missing, corrupt, or half-published map is recovered from the durable
+        # vector cache even when Zotero reports no new changes on this run.
+        missing_keys = sorted(store.existing_keys())
+
+    keys_to_add = list(dict.fromkeys([*result.new_keys, *missing_keys]))
+    if not keys_to_add and not result.updated_keys and GRAPH_FILE.exists():
+        commit_sync_state(result)
         if verbose:
             print("\nNothing new: the map is already up to date.")
         return
@@ -396,9 +440,10 @@ def sync_library(k: int = 8, threshold: float = 0.5, verbose: bool = True) -> No
         print("\n-> Updating the map...")
     add_to_map_incrementally(
         store,
-        result.new_keys,
+        keys_to_add,
         updated_keys=result.updated_keys,
         k=k,
         threshold=threshold,
         verbose=verbose,
     )
+    commit_sync_state(result)

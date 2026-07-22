@@ -9,9 +9,9 @@ has no API cost.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+
+from json_io import write_json_atomically
 
 
 PROJECT_ROOT = Path(__file__).parent
@@ -19,18 +19,6 @@ DATA_DIR = PROJECT_ROOT / "data"
 GRAPH_FILE = DATA_DIR / "graph.json"
 CLUSTERS_FILE = DATA_DIR / "clusters.json"
 STATE_FILE = DATA_DIR / "state.json"
-
-
-def _write_json_atomically(path: Path, data: dict) -> None:
-    """Replace a JSON file only after its complete new version is on disk."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with NamedTemporaryFile(
-        "w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
-    ) as temporary:
-        json.dump(data, temporary, ensure_ascii=False, indent=2)
-        temporary.write("\n")
-        temporary_path = Path(temporary.name)
-    os.replace(temporary_path, path)
 
 
 def _translate_fallback_label(label: str) -> str:
@@ -59,7 +47,7 @@ def _migrate_graph() -> bool:
                 node["cluster_label"] = translated
                 changed = True
     if changed:
-        _write_json_atomically(GRAPH_FILE, data)
+        write_json_atomically(GRAPH_FILE, data)
     return changed
 
 
@@ -93,7 +81,7 @@ def _migrate_clusters() -> bool:
                 changed = True
 
     if changed:
-        _write_json_atomically(CLUSTERS_FILE, data)
+        write_json_atomically(CLUSTERS_FILE, data)
     return changed
 
 
@@ -104,7 +92,7 @@ def _migrate_state() -> bool:
     if "last_zotero_version" in data or "ultima_versione" not in data:
         return False
     data["last_zotero_version"] = data.pop("ultima_versione")
-    _write_json_atomically(STATE_FILE, data)
+    write_json_atomically(STATE_FILE, data)
     return True
 
 

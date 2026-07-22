@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 
 import serve
-from pipeline import rebuild_map, sync_embeddings, sync_library
+from pipeline import commit_sync_state, rebuild_map, sync_embeddings, sync_library
 
 
 def command_sync(_args: argparse.Namespace) -> None:
@@ -18,8 +18,9 @@ def command_sync(_args: argparse.Namespace) -> None:
 
 
 def command_refresh(_args: argparse.Namespace) -> None:
-    store, _result = sync_embeddings(verbose=True, force_full=True)
+    store, result = sync_embeddings(verbose=True, force_full=True)
     rebuild_map(store, verbose=True)
+    commit_sync_state(result)
     print("\nDone. Reload the browser page to see the rebuilt layout.")
 
 

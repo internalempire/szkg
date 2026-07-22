@@ -48,27 +48,67 @@ def _schema(vector_dimensions: int) -> pa.Schema:
 class PaperStore:
     """Open or create the local vector store and expose pipeline operations."""
 
-    def __init__(self, vector_dimensions: int, data_directory: Path | None = None) -> None:
+    def __init__(
+        self,
+        vector_dimensions: int,
+        data_directory: Path | None = None,
+        expected_model: str | None = None,
+    ) -> None:
         self._dimensions = vector_dimensions
         directory = data_directory or DATA_DIRECTORY
         directory.mkdir(parents=True, exist_ok=True)
         self._database = lancedb.connect(str(directory))
-        if TABLE_NAME in self._database.table_names():
+        if hasattr(self._database, "list_tables"):
+            listed_tables = self._database.list_tables()
+            table_names = getattr(listed_tables, "tables", listed_tables)
+        else:  # Compatibility with older supported LanceDB releases.
+            table_names = self._database.table_names()
+        if TABLE_NAME in table_names:
             self._table = self._database.open_table(TABLE_NAME)
+            self._validate_compatibility(vector_dimensions, expected_model)
         else:
             self._table = self._database.create_table(
                 TABLE_NAME, schema=_schema(vector_dimensions)
             )
 
+    def _validate_compatibility(
+        self, vector_dimensions: int, expected_model: str | None
+    ) -> None:
+        """Reject an existing cache that cannot safely accept new vectors."""
+        vector_type = self._table.schema.field("vector").type
+        stored_dimensions = getattr(vector_type, "list_size", None)
+        if stored_dimensions != vector_dimensions:
+            raise SystemExit(
+                "The local embedding cache is incompatible with this configuration:\n"
+                f"  stored vector dimensions: {stored_dimensions}\n"
+                f"  requested dimensions:     {vector_dimensions}\n"
+                "Keep the current embedding settings or rebuild the local cache explicitly."
+            )
+        if expected_model is None or self.count() == 0:
+            return
+        models = {row["model"] for row in self._select_rows(["model"])}
+        if models != {expected_model}:
+            rendered = ", ".join(sorted(model or "<missing>" for model in models))
+            raise SystemExit(
+                "The local embedding cache was created with an incompatible model:\n"
+                f"  stored model(s): {rendered}\n"
+                f"  requested model: {expected_model}\n"
+                "Do not mix embedding models in one cache; use an explicit migration or rebuild."
+            )
+
     def count(self) -> int:
         return self._table.count_rows()
 
-    def existing_keys(self) -> set[str]:
-        """Read only IDs, avoiding heavy vector data during cache checks."""
+    def _select_rows(self, columns: list[str]) -> list[dict]:
+        """Scan selected scalar columns without materializing embedding vectors."""
         row_count = self.count()
         if row_count == 0:
-            return set()
-        rows = self._table.search().select(["key"]).limit(row_count).to_list()
+            return []
+        return self._table.search().select(columns).limit(row_count).to_list()
+
+    def existing_keys(self) -> set[str]:
+        """Read only IDs, avoiding heavy vector data during cache checks."""
+        rows = self._select_rows(["key"])
         return {row["key"] for row in rows}
 
     def _build_rows(
@@ -150,16 +190,8 @@ class PaperStore:
 
     def list_metadata(self) -> list[tuple[str, str, str]]:
         """Return key, title, and abstract without loading vectors."""
-        if self.count() == 0:
-            return []
-        table = self._table.to_arrow()
-        return list(
-            zip(
-                table.column("key").to_pylist(),
-                table.column("title").to_pylist(),
-                table.column("abstract").to_pylist(),
-            )
-        )
+        rows = self._select_rows(["key", "title", "abstract"])
+        return [(row["key"], row["title"], row["abstract"]) for row in rows]
 
     def search_neighbors(self, vector, k: int) -> list[tuple[str, float]]:
         """Return the ``k`` nearest keys with cosine similarity, where 1 is equal."""

@@ -10221,6 +10221,17 @@ void main() {
     if (!response.ok) throw new Error(`Could not read ${path}`);
     return response.json();
   }
+  async function readMapSnapshot() {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const [data, topics] = await Promise.all([
+        readJson(GRAPH_DATA_URL),
+        readJson(CLUSTER_DATA_URL)
+      ]);
+      if ((data.revision || null) === (topics.revision || null)) return [data, topics];
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error("Map files are being updated. Please try again.");
+  }
   async function loadMetadata() {
     try {
       paperMeta = await readJson(METADATA_URL);
@@ -10659,7 +10670,7 @@ void main() {
   }
   async function refreshData() {
     try {
-      const [data, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL), loadMetadata()]);
+      const [[data, topics]] = await Promise.all([readMapSnapshot(), loadMetadata()]);
       validateCoordinates(data.nodes);
       currentTopics = topics.topics;
       generateColors(currentTopics);
@@ -10693,7 +10704,7 @@ void main() {
   }
   async function start() {
     try {
-      const [data, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL), loadMetadata()]);
+      const [[data, topics]] = await Promise.all([readMapSnapshot(), loadMetadata()]);
       currentTopics = topics.topics;
       generateColors(currentTopics);
       graph = buildGraph(data);

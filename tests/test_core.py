@@ -43,6 +43,18 @@ class CoreTests(unittest.TestCase):
         amount = estimate_cost(1_000, "text-embedding-3-small")
         self.assertEqual(format_usd(amount), "$0.00002000")
 
+    def test_non_latin_text_uses_fallback_topic_labels(self) -> None:
+        rng = np.random.default_rng(1)
+        vectors = np.vstack(
+            [
+                rng.normal(loc=-5, scale=0.1, size=(6, 2)),
+                rng.normal(loc=5, scale=0.1, size=(6, 2)),
+            ]
+        ).astype(np.float32)
+        result = cluster_papers(vectors, ["的"] * len(vectors), minimum_topic_size=5)
+        self.assertEqual(len(result.assignments), len(vectors))
+        self.assertTrue(all(topic.label.startswith("topic ") for topic in result.topics))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -55,6 +55,20 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
    italiani nel fallback Cytoscape. **MANTENUTI di proposito**: le **stopword
    italiane** in `clustering.py` (la libreria contiene paper in italiano) e il
    **migratore**. Sezione "migrazione" rimossa dal README; nuovo diagramma README.
+10. **Server locale ristretto (limite beta #1 RISOLTO).** `serve.py` usa una
+    allowlist: espone soltanto viewer, logo e i tre JSON necessari. `.env`, Git e
+    LanceDB non sono più raggiungibili via HTTP; aggiunti header browser difensivi
+    e un test loopback senza rete esterna.
+11. **Sync riprendibile e JSON atomici (limite #4 RISOLTO).** Tutti i JSON sono
+    pubblicati tramite file temporaneo + replace; grafo e cluster condividono una
+    revisione verificata anche dai renderer. `state.json` avanza solo dopo la
+    mappa e il sync recupera chiavi presenti in cache ma assenti dal grafo.
+12. **Guardie embedding (limite #11 RISOLTO).** LanceDB rifiuta dimensioni o
+    modelli incompatibili; la richiesta OpenAI passa esplicitamente le 1.536
+    dimensioni e valida forma/numero dei vettori restituiti.
+13. **Robustezza incrementale.** Jitter deterministico (limite #7 risolto), voce
+    `unclassified` creata quando serve (limite #12 risolto) e fallback per
+    etichette su testi non latini.
 
 ### Snapshot dati locale aggiornato
 - **1837 paper**, **~70 temi** (dopo la correzione del clustering).
@@ -82,11 +96,9 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
 3. **Fluidità del grafo** (1837 nodi / ~9954 archi): pan/zoom può risultare meno
    fluido del riferimento. Manopole Sigma **non** ancora provate: `hideEdgesOnMove:
    true`, archi dritti (`?edges=straight`), riduzione del numero di archi.
-4. **Limiti beta ancora aperti** (lista più in basso): sicurezza del server locale
-   (#1), paper cancellati (#3), atomicità scritture JSON (#4), refresh browser
-   append-only (#6), jitter incrementale (#7), URI Zotero group library (#10),
-   guardie compatibilità embedding (#11), tema `unclassified` incrementale (#12),
-   prezzi OpenAI (#13), test di integrazione (#14), lock dipendenze (#15),
+4. **Limiti beta ancora aperti** (lista più in basso): paper cancellati (#3),
+   refresh browser append-only (#6), URI Zotero group library (#10), prezzi
+   OpenAI (#13), test browser end-to-end (#14), lock dipendenze (#15),
    installer/onboarding (#16), scalabilità (#17).
 
 ### Note operative

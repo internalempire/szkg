@@ -24,6 +24,18 @@ async function readJson(path) {
   return response.json();
 }
 
+async function readMapSnapshot() {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const [data, topics] = await Promise.all([
+      readJson(GRAPH_DATA_URL),
+      readJson(CLUSTER_DATA_URL),
+    ]);
+    if ((data.revision || null) === (topics.revision || null)) return [data, topics];
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("Map files are being updated. Please try again.");
+}
+
 // Display metadata (authors, abstract) is optional: an older map without the
 // file simply shows the panel without those fields.
 async function loadMetadata() {
@@ -399,7 +411,7 @@ function updateExistingColors(data) {
 
 async function refreshData() {
   try {
-    const [data, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL), loadMetadata()]);
+    const [[data, topics]] = await Promise.all([readMapSnapshot(), loadMetadata()]);
     validateCoordinates(data.nodes); currentTopics = topics.topics; generateColors(currentTopics);
     const existing = new Set(graph.nodes());
     const newNodes = data.nodes.filter((n) => !existing.has(n.id)), newNodeIds = new Set(newNodes.map((n) => n.id));
@@ -422,7 +434,7 @@ async function refreshData() {
 
 async function start() {
   try {
-    const [data, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL), loadMetadata()]);
+    const [[data, topics]] = await Promise.all([readMapSnapshot(), loadMetadata()]);
     currentTopics = topics.topics; generateColors(currentTopics); graph = buildGraph(data);
     createRenderer(); bindRendererEvents(); bindControls(); buildLegend(currentTopics);
     updateStatistics(); createTopicLabels(currentTopics);

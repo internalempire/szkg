@@ -65,6 +65,5 @@ class MetadataFileTests(unittest.TestCase):
             finally:
                 pipeline.METADATA_FILE = original
 
-
 if __name__ == "__main__":
     unittest.main()

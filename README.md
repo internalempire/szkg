@@ -244,7 +244,9 @@ python app.py serve
 ```
 
 The server listens only on `127.0.0.1`, chooses a free port between 8000 and
-8019, and opens the browser automatically. Stop it with `Ctrl+C`.
+8019, and opens the browser automatically. It serves only viewer assets and
+generated JSON files; credentials, Git metadata, and the vector database are
+not part of its HTTP surface. Stop it with `Ctrl+C`.
 
 ## Everyday workflow
 
@@ -259,6 +261,10 @@ It embeds papers that are new or whose title or abstract you edited, then places
 each new paper near its existing semantic neighbors. Existing topic assignments
 and positions remain stable; an edited paper keeps its place until the next
 `refresh` moves it to match its new text.
+
+Synchronization is resumable. The saved Zotero version advances only after the
+map update succeeds, and a later `sync` reconciles any cached paper missing from
+the browser map after an interrupted run.
 
 Occasionally run:
 

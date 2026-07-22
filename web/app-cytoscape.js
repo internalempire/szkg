@@ -25,6 +25,17 @@ async function readJson(path) {
   if (!response.ok) throw new Error(`Could not read ${path}`);
   return response.json();
 }
+async function readMapSnapshot() {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const [graphData, topics] = await Promise.all([
+      readJson(GRAPH_DATA_URL),
+      readJson(CLUSTER_DATA_URL),
+    ]);
+    if ((graphData.revision || null) === (topics.revision || null)) return [graphData, topics];
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("Map files are being updated. Please try again.");
+}
 function hslToRgb(h, s, l) {
   h /= 360;
   const f = (n) => {
@@ -525,7 +536,7 @@ function bindControls() {
 }
 
 async function refreshData() {
-  const [graphData, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL)]);
+  const [graphData, topics] = await readMapSnapshot();
   topicColors = new Map();
   topicRgbColors = new Map();
   topicLabels = new Map();
@@ -612,7 +623,7 @@ function updateExistingColors(graphData) {
 
 async function start() {
   try {
-    const [graphData, topics] = await Promise.all([readJson(GRAPH_DATA_URL), readJson(CLUSTER_DATA_URL)]);
+    const [graphData, topics] = await readMapSnapshot();
     generateColors(topics.topics);
 
     cy = cytoscape({

@@ -53,6 +53,8 @@ Zotero Web API
   and embedding vector in `data/lancedb/`. Zotero item keys are the cache
   identity: an existing key is re-embedded only when its title or abstract
   changed, and `upsert` then replaces the row in place instead of duplicating it.
+  Opening an existing cache validates its vector dimension and embedding model
+  before any data can be mixed.
 - `graph.py` connects each paper to up to eight neighbors whose cosine
   similarity is at least `0.5`. Endpoint pairs are sorted to turn asymmetric
   k-nearest-neighbor results into deduplicated undirected edges.
@@ -68,7 +70,7 @@ Zotero Web API
 
 - `sync_embeddings()` reads only Zotero changes when a saved version is
   available, embeds papers that are new or whose title/abstract changed, skips
-  cached papers whose text is unchanged, and advances `state.json`.
+  cached papers whose text is unchanged, and returns the observed Zotero version.
 - `rebuild_map()` recalculates graph, topics, labels, and positions for every
   cached paper. It does not re-embed existing keys.
 - `add_to_map_incrementally()` gives each new paper neighbor links, a
@@ -77,7 +79,8 @@ Zotero Web API
   re-embedded paper it corrects only the displayed title; its links, topic, and
   position are recomputed by the next `rebuild_map()`.
 - `sync_library()` combines embedding synchronization and incremental map
-  insertion.
+  insertion. It reconciles cache keys missing from the map after an interrupted
+  run and advances `state.json` only after map publication succeeds.
 - `data_migration.py` upgrades JSON metadata from the original legacy schema
   before any workflow reads it.
 
@@ -89,6 +92,7 @@ All generated files live under `data/` and are excluded from Git.
 
 ```json
 {
+  "revision": "matching-snapshot-id",
   "nodes": [
     {
       "id": "ZOTERO_KEY",
@@ -117,6 +121,7 @@ unclassified.
 
 ```json
 {
+  "revision": "matching-snapshot-id",
   "topics": [
     {
       "id": 3,
@@ -140,6 +145,11 @@ unclassified.
 ```
 
 The version is Zotero's library version, not an application release number.
+
+`graph.json` and `clusters.json` carry the same publication revision. Every JSON
+file is first written to a temporary sibling and atomically replaced. Readers
+reject a graph/topic pair with different revisions; the next `sync` rebuilds an
+incomplete pair from the durable vector cache. `state.json` is committed last.
 
 ## Automatic schema migration
 
@@ -171,6 +181,9 @@ accidental removal.
 The Python output contract is renderer-independent. Both renderers read the
 same JSON and reuse the same HTML controls, so retaining the fallback does not
 duplicate the analysis pipeline.
+
+Both renderers retry briefly when the two JSON documents expose different
+revisions, preventing a browser refresh from combining files across a publish.
 
 ### Sigma interaction state
 
