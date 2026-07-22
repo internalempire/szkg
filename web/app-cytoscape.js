@@ -637,7 +637,6 @@ async function start() {
       minZoom: 0.03,
       maxZoom: 200,
       textureOnViewport: true,
-      hideEdgesOnViewport: true,
       pixelRatio: 1,
     });
 

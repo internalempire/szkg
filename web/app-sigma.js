@@ -18,7 +18,6 @@ let highlightedNodes = null, highlightedEdges = null;
 let hiddenTopics = new Set(), showWeakAssignments = true, topicLabelElements = [];
 let paperMeta = {};
 let viewerConfig = { library_type: "user", library_id: "" };
-let topicLabelFrame = null;
 
 async function readJson(path) {
   const sep = path.includes("?") ? "&" : "?";
@@ -196,7 +195,7 @@ function createRenderer() {
   withMultisampledContexts(() => {
     renderer = new Sigma(graph, document.getElementById("cy"), {
       renderLabels: false, renderEdgeLabels: false, enableEdgeEvents: true,
-      hideEdgesOnMove: true, hideLabelsOnMove: true, zIndex: true, stagePadding: 30,
+      hideEdgesOnMove: false, hideLabelsOnMove: false, zIndex: true, stagePadding: 30,
       minCameraRatio: 0.005, maxCameraRatio: 33.333,
       doubleClickZoomingRatio: 1.8, doubleClickZoomingDuration: 250,
       zoomToSizeRatioFunction: () => 1, itemSizesReference: "screen", minEdgeThickness: 1.1,
@@ -206,16 +205,9 @@ function createRenderer() {
       nodeReducer: reduceNode, edgeReducer: reduceEdge,
     });
   });
-  // Sigma needs an edge-picking framebuffer created at startup, but reading it
-  // on every pointer move is useful only while a paper is selected.
-  renderer.setSetting("enableEdgeEvents", false);
 }
 
 function refreshRenderer() { if (renderer) renderer.refresh(); }
-function setEdgeEvents(enabled) {
-  if (renderer && renderer.getSetting("enableEdgeEvents") !== enabled)
-    renderer.setSetting("enableEdgeEvents", enabled);
-}
 function internalEdges(ids) {
   const result = new Set();
   graph.forEachEdge((id, _a, s, t) => { if (ids.has(s) && ids.has(t)) result.add(id); });
@@ -238,9 +230,7 @@ function restoreHighlight() {
     applyHighlight(new Set(graph.filterNodes((_id, a) => a.cluster === activeTopic)));
   else refreshRenderer();
 }
-function deselectNode() {
-  selectedNode = null; selectedEdge = null; setEdgeEvents(false);
-}
+function deselectNode() { selectedNode = null; selectedEdge = null; }
 function resetSelection() {
   activeTopic = null; deselectNode(); clearHighlight(false); hidePanels();
   document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
@@ -289,7 +279,6 @@ function bindRendererEvents() {
     activeTopic = null;
     document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
     selectedNode = node; selectedEdge = null;
-    setEdgeEvents(true);
     document.getElementById("info2").classList.add("hidden");
     applyHighlight(new Set([node, ...graph.neighbors(node)]));
     showInfo(node, "info");
@@ -304,8 +293,8 @@ function bindRendererEvents() {
   });
 
   renderer.on("clickStage", resetSelection);
-  renderer.getCamera().on("updated", scheduleTopicLabelPositions);
-  renderer.on("resize", scheduleTopicLabelPositions);
+  renderer.getCamera().on("updated", updateTopicLabelPositions);
+  renderer.on("resize", updateTopicLabelPositions);
   document.getElementById("cy").addEventListener("mousemove", (e) => {
     if (tooltip.classList.contains("hidden")) return;
     tooltip.style.left = `${e.offsetX + 14}px`; tooltip.style.top = `${e.offsetY + 14}px`;
@@ -313,14 +302,14 @@ function bindRendererEvents() {
 }
 
 function updateVisibility() {
-  graph.updateEachNodeAttributes((id, a) => {
+  graph.forEachNode((id, a) => {
     const hidden = hiddenTopics.has(a.cluster) || (!showWeakAssignments && a.weak_assignment);
-    return a.hidden === hidden ? a : { ...a, hidden };
-  }, { attributes: ["hidden"] });
-  graph.updateEachEdgeAttributes((_id, a, _s, _t, source, target) => {
-    const hidden = source.hidden || target.hidden;
-    return a.hidden === hidden ? a : { ...a, hidden };
-  }, { attributes: ["hidden"] });
+    if (a.hidden !== hidden) graph.setNodeAttribute(id, "hidden", hidden);
+  });
+  graph.forEachEdge((id, a, s, t) => {
+    const hidden = graph.getNodeAttribute(s, "hidden") || graph.getNodeAttribute(t, "hidden");
+    if (a.hidden !== hidden) graph.setEdgeAttribute(id, "hidden", hidden);
+  });
   refreshRenderer();
 }
 
@@ -389,14 +378,6 @@ function updateTopicLabelPositions() {
   });
 }
 
-function scheduleTopicLabelPositions() {
-  if (topicLabelFrame !== null) return;
-  topicLabelFrame = requestAnimationFrame(() => {
-    topicLabelFrame = null;
-    updateTopicLabelPositions();
-  });
-}
-
 function bindControls() {
   document.getElementById("search").addEventListener("input", (e) => {
     const q = e.target.value.trim().toLowerCase();
@@ -437,20 +418,9 @@ function reconcileGraph(data) {
   graph.nodes().forEach((id) => { if (!desiredNodes.has(id)) graph.dropNode(id); });
 
   data.nodes.forEach((n) => {
-    if (!graph.hasNode(n.id)) graph.addNode(n.id, nodeAttributes(n));
+    if (graph.hasNode(n.id)) graph.mergeNodeAttributes(n.id, nodeAttributes(n));
+    else graph.addNode(n.id, nodeAttributes(n));
   });
-  graph.updateEachNodeAttributes((id, a) => ({
-    ...a,
-    ...nodeAttributes(desiredNodes.get(id), a.degree || 0),
-  }), { attributes: [
-    "x", "y", "label", "title", "cluster", "clusterLabel", "weak_assignment",
-    "color", "baseColor", "borderColor", "haloColor", "type", "hidden", "zIndex",
-  ] });
-  graph.updateEachEdgeAttributes((id, _a, _s, _t, source, target) =>
-    edgeAttributes(desiredEdges.get(id), source.cluster, target.cluster),
-  { attributes: [
-    "weight", "size", "color", "baseColor", "curvature", "type", "hidden", "zIndex",
-  ] });
   data.edges.forEach((e) => {
     const id = edgeId(e);
     if (!graph.hasNode(e.source) || !graph.hasNode(e.target)) return;
@@ -459,13 +429,11 @@ function reconcileGraph(data) {
       graph.getNodeAttribute(e.source, "cluster"),
       graph.getNodeAttribute(e.target, "cluster"),
     );
-    if (!graph.hasEdge(id)) graph.addUndirectedEdgeWithKey(id, e.source, e.target, attributes);
+    if (graph.hasEdge(id)) graph.mergeEdgeAttributes(id, attributes);
+    else graph.addUndirectedEdgeWithKey(id, e.source, e.target, attributes);
   });
-  graph.updateEachNodeAttributes((id, a) => ({
-    ...a,
-    degree: graph.degree(id),
-    size: nodeSize(graph.degree(id), a.weak_assignment),
-  }), { attributes: ["degree", "size"] });
+  graph.forEachNode((id, a) => graph.mergeNodeAttributes(id,
+    { degree: graph.degree(id), size: nodeSize(graph.degree(id), a.weak_assignment) }));
 
   return {
     addedNodes: data.nodes.filter((n) => !previousNodes.has(n.id)).length,

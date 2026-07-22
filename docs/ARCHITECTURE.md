@@ -219,13 +219,6 @@ Curved edges use `@sigma/edge-curve`; `?edges=straight` provides a diagnostic
 comparison. Node borders use `@sigma/node-border`. Graphology supplies graph
 queries such as neighborhoods and endpoints but does not calculate positions.
 
-For large maps, Sigma omits edges only while the camera is moving and disables
-edge hit-testing until a paper selection makes edge clicks useful. Visibility
-and snapshot reconciliation use Graphology's bulk attribute updates so Sigma
-receives one aggregate invalidation instead of thousands of per-element events.
-Floating topic-label positions are coalesced to at most one DOM update per
-animation frame. The Cytoscape fallback similarly hides edges on viewport moves.
-
 ## Renderer trade-off
 
 Sigma/WebGL is the default because the GPU can redraw a large graph much more
