@@ -69,6 +69,19 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
 13. **Robustezza incrementale.** Jitter deterministico (limite #7 risolto), voce
     `unclassified` creata quando serve (limite #12 risolto) e fallback per
     etichette su testi non latini.
+14. **Cancellazioni Zotero (limite #3 RISOLTO).** `sync` legge in sola lettura sia
+    gli item cambiati/in cestino sia `/deleted?since=...`; rimuove le chiavi da
+    LanceDB, metadata, nodi, archi e assegnazioni. Un full read riconcilia anche
+    gli item non più idonei. L'identità user/group salvata nello stato impedisce
+    di applicare per errore le cancellazioni di una libreria a un'altra.
+15. **Refresh browser completo (limite #6 RISOLTO).** Sigma e Cytoscape ora
+    riconciliano esattamente nodi, archi, attributi e coordinate, mantenendo
+    camera, ricerca e selezioni ancora valide; non serve più il reload dopo
+    `refresh`.
+16. **Link group library (limite #10 RISOLTO).** Il nuovo `data/viewer.json`
+    contiene soltanto tipo e ID non segreti della libreria; entrambi i renderer
+    usano `zotero://select/groups/{groupID}/items/{key}` per i gruppi e il formato
+    `library/items` per la libreria personale.
 
 ### Snapshot dati locale aggiornato
 - **1837 paper**, **~70 temi** (dopo la correzione del clustering).
@@ -96,9 +109,8 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
 3. **Fluidità del grafo** (1837 nodi / ~9954 archi): pan/zoom può risultare meno
    fluido del riferimento. Manopole Sigma **non** ancora provate: `hideEdgesOnMove:
    true`, archi dritti (`?edges=straight`), riduzione del numero di archi.
-4. **Limiti beta ancora aperti** (lista più in basso): paper cancellati (#3),
-   refresh browser append-only (#6), URI Zotero group library (#10), prezzi
-   OpenAI (#13), test browser end-to-end (#14), lock dipendenze (#15),
+4. **Limiti beta ancora aperti** (lista più in basso): prezzi OpenAI (#13), test
+   browser end-to-end (#14), lock dipendenze (#15),
    installer/onboarding (#16), scalabilità (#17).
 
 ### Note operative
@@ -249,17 +261,16 @@ L'interfaccia permette di:
 - fare anteprima o bloccare l'evidenziazione di un tema dalla legenda;
 - mostrare o nascondere singoli temi tramite checkbox;
 - mostrare o nascondere le assegnazioni deboli;
-- rileggere i JSON dal pulsante **Refresh data**, aggiungendo al grafo del
-  browser soltanto i nuovi nodi e archi;
+- rileggere i JSON dal pulsante **Refresh data**, riconciliando nodi, archi,
+  attributi e coordinate;
 - ripristinare la vista completa.
 
 Sigma mostra etichette HTML fluttuanti per i 14 temi più grandi. I singoli nodi
 non hanno etichette sempre visibili, per evitare sovraccarico grafico.
 
 Il pulsante **Refresh data** non avvia Python, Zotero o OpenAI e non modifica i
-JSON: rilegge i file già generati. È adatto dopo `sync`. Dopo un `refresh`
-completo bisogna ricaricare la pagina per applicare pienamente nuove coordinate
-e un nuovo insieme di archi ai nodi già presenti.
+JSON: rilegge i file già generati. È adatto sia dopo `sync` sia dopo `refresh` e
+non richiede più un reload per applicare coordinate o archi aggiornati.
 
 ## Architettura in una vista
 
@@ -382,13 +393,12 @@ apertura del browser.
 
 Implementa il principio **“fast now, precise later”**:
 
-- `sync_embeddings()` legge Zotero, salta le chiavi presenti, embedda in gruppi
-  di avanzamento da 200 e aggiorna `state.json` quando non è usato un limite;
+- `sync_embeddings()` legge cambiamenti e cancellazioni Zotero, aggiorna la
+  cache e restituisce la versione coperta senza avanzare ancora lo stato;
 - `rebuild_map()` ricalcola grafo, clustering e layout sull'intera cache;
-- `add_to_map_incrementally()` collega ogni nuovo paper, assegna il tema tramite
-  voto dei vicini e lo posiziona sulla media delle loro coordinate con un piccolo
-  jitter casuale;
-- `sync_library()` combina sincronizzazione e inserimento incrementale.
+- `add_to_map_incrementally()` aggiunge nuovi paper, rimuove quelli cancellati e
+  aggiorna nodi, archi e assegnazioni con jitter deterministico;
+- `sync_library()` riconcilia cache e mappa, poi avanza atomicamente lo stato.
 
 Se i JSON della mappa non esistono, l'incrementale passa automaticamente a una
 ricostruzione completa.
@@ -657,49 +667,34 @@ Non cambiare queste decisioni incidentalmente:
 
 Questi sono punti aperti, non autorizzazioni automatiche a modificarli:
 
-1. **Superficie del server locale**: `serve.py` espone attualmente l'intera root
-   del progetto tramite HTTP, quindi un processo locale potrebbe richiedere
-   anche `.env` o file di LanceDB. Il binding a `127.0.0.1` impedisce accessi
-   diretti dalla rete, ma nella beta conviene servire esplicitamente soltanto
-   frontend, bundle, vendor, `graph.json` e `clusters.json`, negando segreti e
-   database.
-2. **Metadati modificati**: se titolo o abstract cambiano ma la chiave Zotero è
-   già in LanceDB, oggi l'embedding e i metadati cached non vengono aggiornati.
-   Serve una politica esplicita basata sulla versione Zotero e una valutazione
-   dei costi. Questo rende attualmente imprecisa la promessa della guida italiana
-   secondo cui correggere metadati e fare `refresh` migliora sempre quei paper.
-3. **Elementi cancellati**: l'incrementale non rimuove dalla cache o dalla mappa
-   gli item eliminati in Zotero.
-4. **Coerenza tra stato, cache e mappa**: `sync_embeddings()` avanza
-   `state.json` prima dell'inserimento nei JSON. Un crash successivo può lasciare
-   un paper in LanceDB e nello stato, ma assente dalla mappa fino a un `refresh`.
-   Inoltre le normali scritture di `graph.json` e `clusters.json` non sono ancora
-   atomiche come quelle del migratore.
+1. **[RISOLTO BETA] Superficie del server locale**: ora usa un'allowlist e non
+   espone segreti, Git o LanceDB.
+2. **[RISOLTO BETA] Metadati modificati**: titolo/abstract cambiati forzano un
+   upsert con nuovo embedding; tag e collezioni non generano costi.
+3. **[RISOLTO BETA] Elementi cancellati**: cestino, log `/deleted` e full read
+   riconciliano cache, metadata e mappa locale.
+4. **[RISOLTO BETA] Coerenza tra stato, cache e mappa**: JSON atomici con
+   revisione comune, recupero cache↔mappa e stato pubblicato per ultimo.
 5. **Qualità incrementale**: `sync` non ricalcola temi o layout globali; dopo
    molte aggiunte è necessario `refresh`.
-6. **Refresh del browser append-only**: il pulsante aggiorna colori e legenda e
-   aggiunge nuovi elementi, ma non rimuove elementi e non sostituisce coordinate
-   o archi esistenti. Dopo una ricostruzione completa serve il reload.
-7. **Jitter incrementale**: la posizione dei nuovi paper contiene casualità non
-   seedata; due inserimenti ricostruiti separatamente possono differire.
+6. **[RISOLTO BETA] Refresh del browser**: riconcilia l'intera fotografia senza
+   perdere camera, ricerca o selezioni ancora valide.
+7. **[RISOLTO BETA] Jitter incrementale**: è deterministico per chiave Zotero.
 8. **Layout globale**: un `refresh` può spostare le isole quando cambia il
    dataset, anche con random seed fisso.
 9. **Contenuto analizzato**: si usano solo titolo e abstract; paper senza
    abstract hanno rappresentazioni più deboli.
-10. **Link Zotero per librerie di gruppo**: il viewer costruisce sempre
-    `zotero://select/library/items/{key}`. Verificare il formato richiesto dalle
-    group library prima di dichiararne completo il supporto nell'interfaccia.
-11. **Compatibilità embedding**: una tabella esistente non impedisce oggi di
-    mescolare modelli incompatibili; un cambio di modello o dimensione richiede
-    guardie e migrazione. Il provider espone `dimensions`, ma la richiesta API
-    corrente non passa esplicitamente quel parametro.
-12. **Tema `unclassified` incrementale**: se la mappa non conteneva già il tema
-    `-1` e arriva un nuovo paper senza voto valido, l'assegnazione viene salvata
-    ma la relativa voce potrebbe non comparire nella legenda dei cluster.
+10. **[RISOLTO BETA] Link Zotero per librerie di gruppo**: entrambi i renderer
+    usano tipo e ID pubblicati in `viewer.json` per costruire l'URI corretto.
+11. **[RISOLTO BETA] Compatibilità embedding**: modello e dimensioni sono
+    validati e le 1.536 dimensioni sono esplicite nella richiesta.
+12. **[RISOLTO BETA] Tema `unclassified` incrementale**: la voce viene creata
+    quando arriva la prima assegnazione `-1`.
 13. **Prezzi OpenAI**: la tabella di costo è manuale e va verificata nel tempo.
-14. **Test**: la copertura automatica è ancora ridotta; mancano test di
-   integrazione della pipeline, contratti JSON completi e test browser end-to-end
-   per entrambi i renderer, sicurezza del server, URI group e performance.
+14. **Test**: la copertura automatica include pipeline di cancellazione,
+   pubblicazione JSON e sicurezza del server; mancano ancora contratti JSON
+   completi, test browser end-to-end per entrambi i renderer, URI group e
+   performance.
 15. **Riproducibilità Python**: `requirements.txt` usa limiti minimi e non congela
    tutte le versioni transitive.
 16. **Distribuzione**: l'installazione richiede ancora terminale, venv e `.env`;

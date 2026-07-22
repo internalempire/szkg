@@ -34,6 +34,15 @@ class Paper:
         return f"{self.title}\n\n{self.abstract}".strip()
 
 
+@dataclass
+class SourceChanges:
+    """Incremental Zotero data plus keys that must disappear locally."""
+
+    papers: list[Paper]
+    removed_keys: set[str]
+    current_version: int
+
+
 class ZoteroSource(ABC):
     """Contract for any component capable of supplying Zotero papers.
 
@@ -47,9 +56,14 @@ class ZoteroSource(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def fetch_since(self, since_version: int) -> tuple[list[Paper], int]:
-        """Return items changed after a known Zotero library version."""
+    def fetch_changes_since(self, since_version: int) -> SourceChanges:
+        """Return changed papers and remotely removed keys after a version."""
         raise NotImplementedError
+
+    def fetch_since(self, since_version: int) -> tuple[list[Paper], int]:
+        """Compatibility wrapper returning only changed eligible papers."""
+        changes = self.fetch_changes_since(since_version)
+        return changes.papers, changes.current_version
 
 
 _EXCLUDED_ITEM_TYPES = {"attachment", "note", "annotation"}
@@ -116,28 +130,59 @@ class PyzoteroSource(ZoteroSource):
         else:
             # ``everything`` follows Zotero's paginated responses.
             raw_items = self._zotero.everything(self._zotero.top())
-        return self._transform(raw_items), self._current_version()
+        return self._transform(raw_items), self._response_version()
 
-    def fetch_since(self, since_version: int) -> tuple[list[Paper], int]:
-        raw_items = self._zotero.everything(self._zotero.top(since=since_version))
-        return self._transform(raw_items), self._current_version()
+    def fetch_changes_since(self, since_version: int) -> SourceChanges:
+        # Trashed top-level items are requested explicitly so they can be removed
+        # from the local cache immediately instead of waiting for the trash to be
+        # emptied. The separate deleted endpoint covers permanent deletions.
+        raw_items = self._zotero.everything(
+            self._zotero.top(since=since_version, includeTrashed=1)
+        )
+        papers, ineligible_keys = self._transform_with_removals(raw_items)
+        items_version = self._response_version()
+
+        deleted_data = self._zotero.deleted(since=since_version)
+        deleted_version = self._response_version()
+        deleted_keys = set((deleted_data or {}).get("items", []))
+
+        # If the library changes between the two reads, the lower response
+        # version is the safe high-water mark covered by both requests.
+        versions = [version for version in (items_version, deleted_version) if version]
+        current_version = min(versions) if versions else since_version
+        removed_keys = ineligible_keys | deleted_keys
+        papers = [paper for paper in papers if paper.key not in removed_keys]
+        return SourceChanges(papers, removed_keys, current_version)
+
+    def _response_version(self) -> int:
+        request = getattr(self._zotero, "request", None)
+        value = request.headers.get("last-modified-version") if request is not None else None
+        return int(value) if value is not None else self._current_version()
 
     def _current_version(self) -> int:
         return int(self._zotero.last_modified_version())
 
     def _transform(self, raw_items: list[dict]) -> list[Paper]:
+        papers, _removed_keys = self._transform_with_removals(raw_items)
+        return papers
+
+    def _transform_with_removals(
+        self, raw_items: list[dict]
+    ) -> tuple[list[Paper], set[str]]:
         papers: list[Paper] = []
+        removed_keys: set[str] = set()
         for entry in raw_items:
             data = entry.get("data", {})
+            key = data.get("key", "")
             item_type = data.get("itemType", "")
-            if item_type in _EXCLUDED_ITEM_TYPES:
-                continue
             title = (data.get("title") or "").strip()
-            if not title:
+            if data.get("deleted") or item_type in _EXCLUDED_ITEM_TYPES or not title:
+                if key:
+                    removed_keys.add(key)
                 continue
             papers.append(
                 Paper(
-                    key=data.get("key", ""),
+                    key=key,
                     title=title,
                     abstract=(data.get("abstractNote") or "").strip(),
                     item_type=item_type,
@@ -147,4 +192,4 @@ class PyzoteroSource(ZoteroSource):
                     year=extract_year(data.get("date", "")),
                 )
             )
-        return papers
+        return papers, removed_keys

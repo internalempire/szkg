@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 import pipeline
+from config import ZoteroConfig
 from zotero_source import Paper, extract_publication, extract_year, format_authors
 
 
@@ -64,6 +65,22 @@ class MetadataFileTests(unittest.TestCase):
                 self.assertEqual(data["BBBBBBBB"]["authors"], "John Doe")
             finally:
                 pipeline.METADATA_FILE = original
+
+    def test_viewer_config_contains_non_secret_library_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            original = pipeline.VIEWER_CONFIG_FILE
+            pipeline.VIEWER_CONFIG_FILE = Path(directory) / "viewer.json"
+            try:
+                pipeline._update_viewer_config(
+                    ZoteroConfig("7654321", "group", "must-not-be-written")
+                )
+                data = json.loads(pipeline.VIEWER_CONFIG_FILE.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    data, {"library_id": "7654321", "library_type": "group"}
+                )
+                self.assertNotIn("api", json.dumps(data).lower())
+            finally:
+                pipeline.VIEWER_CONFIG_FILE = original
 
 if __name__ == "__main__":
     unittest.main()

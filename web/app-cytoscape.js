@@ -1,5 +1,6 @@
 const GRAPH_DATA_URL = "../data/graph.json";
 const CLUSTER_DATA_URL = "../data/clusters.json";
+const VIEWER_CONFIG_URL = "../data/viewer.json";
 cytoscape.use(window.cytoscapeFcose);
 /* Legacy CPU renderer kept as a safety fallback for the WebGL implementation. */
 let topicColors = new Map();
@@ -13,6 +14,7 @@ let hiddenTopics = new Set();
 let showWeakAssignments = true;
 let isMoving = false;
 let movementTimer = null;
+let viewerConfig = { library_type: "user", library_id: "" };
 const NODE_PX = 12;
 const WEAK_NODE_PX = 9;
 const SELECTED_NODE_PX = 20;
@@ -35,6 +37,16 @@ async function readMapSnapshot() {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error("Map files are being updated. Please try again.");
+}
+async function loadViewerConfig() {
+  try { viewerConfig = await readJson(VIEWER_CONFIG_URL); }
+  catch { viewerConfig = { library_type: "user", library_id: "" }; }
+}
+function zoteroSelectUri(id) {
+  const key = encodeURIComponent(id);
+  if (viewerConfig.library_type === "group" && viewerConfig.library_id)
+    return `zotero://select/groups/${encodeURIComponent(viewerConfig.library_id)}/items/${key}`;
+  return `zotero://select/library/items/${key}`;
 }
 function hslToRgb(h, s, l) {
   h /= 360;
@@ -353,7 +365,7 @@ function showInfo(node, idBox) {
       ${weakAssignment ? '<span class="weak-badge">weak assignment</span>' : ""}
     </p>
     <p class="detail-row">Links: ${node.degree()}</p>
-    <p class="detail-row"><a href="zotero://select/library/items/${key}">Open in Zotero</a></p>
+    <p class="detail-row"><a href="${zoteroSelectUri(key)}">Open in Zotero</a></p>
   `;
   box.classList.remove("hidden");
 }
@@ -536,94 +548,85 @@ function bindControls() {
 }
 
 async function refreshData() {
-  const [graphData, topics] = await readMapSnapshot();
-  topicColors = new Map();
-  topicRgbColors = new Map();
-  topicLabels = new Map();
-  generateColors(topics.topics);
-
-  const existingIds = new Set(cy.nodes().map((n) => n.id()));
-  const newNodes = graphData.nodes.filter((n) => !existingIds.has(n.id));
-
-  if (newNodes.length === 0) {
-    updateExistingColors(graphData);
+  try {
+    const [[graphData, topics]] = await Promise.all([
+      readMapSnapshot(), loadViewerConfig(),
+    ]);
+    topicColors = new Map();
+    topicRgbColors = new Map();
+    topicLabels = new Map();
+    generateColors(topics.topics);
+    const changes = reconcileGraphData(graphData);
+    if (selectedNode && cy.getElementById(selectedNode).empty()) {
+      selectedNode = null;
+      hidePanels();
+    }
+    document.getElementById("info2").classList.add("hidden");
+    cy.edges().removeClass("edge-selected");
+    if (selectedNode) showInfo(cy.getElementById(selectedNode), "info");
+    if (activeTopic !== null && !topics.topics.some((topic) => topic.id === activeTopic))
+      activeTopic = null;
     buildLegend(topics.topics);
     updateStatistics();
-    alert("No new papers to add. Colors and legend were refreshed.");
-    return;
+    updateVisibility();
+    calculateDegrees();
+    applyZoomScale();
+    createTopicLabels(topics.topics);
+    const query = document.getElementById("search").value.trim().toLowerCase();
+    if (query) {
+      const matches = cy.nodes().filter((n) =>
+        (n.data("title") || "").toLowerCase().includes(query));
+      clearHighlight();
+      if (matches.length) applyHighlight(matches);
+    } else restoreHighlight();
+    alert(`Map refreshed: +${changes.addedNodes}/−${changes.removedNodes} papers, ` +
+      `+${changes.addedEdges}/−${changes.removedEdges} links.`);
+  } catch (err) {
+    alert(`Refresh failed: ${err.message}`);
   }
-
-  const newIds = new Set(newNodes.map((n) => n.id));
-
-  cy.batch(() => {
-    for (const n of newNodes) {
-      cy.add({
-        group: "nodes",
-        data: {
-          id: n.id, title: n.title, cluster: n.cluster,
-          label: n.cluster_label, weak_assignment: !!n.weak_assignment, color: topicColor(n.cluster),
-        },
-      });
-    }
-    const currentIds = new Set(cy.nodes().map((x) => x.id()));
-    for (const e of graphData.edges) {
-      if (!newIds.has(e.source) && !newIds.has(e.target)) continue;
-      const eid = `${e.source}__${e.target}`;
-      if (cy.getElementById(eid).nonempty()) continue;
-      if (currentIds.has(e.source) && currentIds.has(e.target)) {
-        const ca = cy.getElementById(e.source).data("cluster");
-        const cb = cy.getElementById(e.target).data("cluster");
-        cy.add({
-          group: "edges",
-          data: { id: eid, source: e.source, target: e.target, weight: e.weight, color: edgeColor(ca, cb), curv: edgeCurvature(eid) },
-        });
-      }
-    }
-    for (const n of newNodes) {
-      const node = cy.getElementById(n.id);
-      const existingNeighbors = node.neighborhood("node").filter((x) => !newIds.has(x.id()));
-      if (existingNeighbors.nonempty()) {
-        const average = existingNeighbors.reduce(
-          (acc, x) => { const p = x.position(); acc.x += p.x; acc.y += p.y; return acc; },
-          { x: 0, y: 0 }
-        );
-        const k = existingNeighbors.length;
-        node.position({ x: average.x / k + (Math.random() - 0.5) * 30, y: average.y / k + (Math.random() - 0.5) * 30 });
-      } else {
-        const c = cy.extent();
-        node.position({ x: (c.x1 + c.x2) / 2, y: (c.y1 + c.y2) / 2 });
-      }
-    }
-  });
-  updateExistingColors(graphData);
-  buildLegend(topics.topics);
-  updateStatistics();
-  updateVisibility();
-  calculateDegrees();
-  applyZoomScale();
-  createTopicLabels(topics.topics);
-  alert(`Added ${newNodes.length} new papers to the map.`);
 }
-function updateExistingColors(graphData) {
-  const byId = new Map(graphData.nodes.map((n) => [n.id, n]));
+
+function reconcileGraphData(graphData) {
+  const desiredNodes = new Map(graphData.nodes.map((n) => [n.id, n]));
+  const desiredEdges = new Map(graphData.edges.map((e) => [`${e.source}__${e.target}`, e]));
+  const previousNodes = new Set(cy.nodes().map((n) => n.id()));
+  const previousEdges = new Set(cy.edges().map((e) => e.id()));
   cy.batch(() => {
-    cy.nodes().forEach((node) => {
-      const data = byId.get(node.id());
-      if (!data) return;
-      node.data("cluster", data.cluster);
-      node.data("label", data.cluster_label);
-      node.data("weak_assignment", !!data.weak_assignment);
-      node.data("color", topicColor(data.cluster));
+    cy.edges().forEach((edge) => { if (!desiredEdges.has(edge.id())) edge.remove(); });
+    cy.nodes().forEach((node) => { if (!desiredNodes.has(node.id())) node.remove(); });
+    graphData.nodes.forEach((n) => {
+      let node = cy.getElementById(n.id);
+      if (node.empty()) node = cy.add({ group: "nodes", data: { id: n.id } });
+      node.data({ title: n.title, cluster: n.cluster, label: n.cluster_label,
+        weak_assignment: !!n.weak_assignment, color: topicColor(n.cluster) });
+      node.position({ x: n.x, y: n.y });
     });
-    cy.edges().forEach((edge) => {
-      edge.data("color", edgeColor(edge.source().data("cluster"), edge.target().data("cluster")));
+    graphData.edges.forEach((e) => {
+      const source = cy.getElementById(e.source);
+      const target = cy.getElementById(e.target);
+      if (source.empty() || target.empty()) return;
+      const id = `${e.source}__${e.target}`;
+      let edge = cy.getElementById(id);
+      const data = { id, source: e.source, target: e.target, weight: e.weight,
+        color: edgeColor(source.data("cluster"), target.data("cluster")),
+        curv: edgeCurvature(id) };
+      if (edge.empty()) edge = cy.add({ group: "edges", data });
+      else edge.data({ weight: e.weight, color: data.color, curv: data.curv });
     });
   });
+  return {
+    addedNodes: graphData.nodes.filter((n) => !previousNodes.has(n.id)).length,
+    removedNodes: [...previousNodes].filter((id) => !desiredNodes.has(id)).length,
+    addedEdges: graphData.edges.filter((e) => !previousEdges.has(`${e.source}__${e.target}`)).length,
+    removedEdges: [...previousEdges].filter((id) => !desiredEdges.has(id)).length,
+  };
 }
 
 async function start() {
   try {
-    const [graphData, topics] = await readMapSnapshot();
+    const [[graphData, topics]] = await Promise.all([
+      readMapSnapshot(), loadViewerConfig(),
+    ]);
     generateColors(topics.topics);
 
     cy = cytoscape({

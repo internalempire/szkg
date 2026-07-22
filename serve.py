@@ -20,6 +20,7 @@ _PUBLIC_PATHS = {
     "/data/clusters.json",
     "/data/graph.json",
     "/data/metadata.json",
+    "/data/viewer.json",
     "/web/app-cytoscape.js",
     "/web/dist/app-sigma.bundle.js",
     "/web/index.html",

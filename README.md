@@ -26,9 +26,12 @@ kept as a safety fallback.
 - Select a paper to highlight its semantic neighborhood.
 - Select a highlighted link to inspect the paper at its other endpoint.
 - Open a selected item directly in Zotero.
+- Open items correctly from either a personal or group Zotero library.
 - Add new papers incrementally without paying to embed cached papers again.
 - Re-embed a paper automatically when you edit its title or abstract in Zotero,
   while unchanged papers are never re-embedded.
+- Remove papers locally when they are trashed, deleted, or become ineligible in
+  Zotero, without ever writing back to the Zotero library.
 - Periodically rebuild the complete map for a more globally accurate layout.
 - See token usage and estimated embedding cost on every synchronization.
 
@@ -258,7 +261,8 @@ python app.py sync
 
 `sync` asks Zotero only for items modified after the stored library version.
 It embeds papers that are new or whose title or abstract you edited, then places
-each new paper near its existing semantic neighbors. Existing topic assignments
+each new paper near its existing semantic neighbors. It also removes locally
+cached papers reported as trashed or deleted by Zotero. Existing topic assignments
 and positions remain stable; an edited paper keeps its place until the next
 `refresh` moves it to match its new text.
 
@@ -290,8 +294,8 @@ users should prefer `python app.py refresh`.
 - Toggle weak assignments on or off.
 - Use the wheel, double-click, or `+` / `-` controls to zoom.
 - Use the fit button to restore the complete view.
-- Use **Refresh data** after a background `sync` to append new browser data
-  without reloading the whole page.
+- Use **Refresh data** after a background `sync` or `refresh` to reconcile nodes,
+  links, topics, and coordinates without reloading the whole page.
 
 ### Renderer diagnostics
 
@@ -325,6 +329,7 @@ The public repository intentionally excludes:
 - `.env` and all real API keys;
 - `data/lancedb/` embedding vectors;
 - `graph.json`, `clusters.json`, and `state.json`;
+- `metadata.json` and the non-secret local viewer configuration;
 - Zotero titles and abstracts;
 - local Python and Node dependency folders.
 

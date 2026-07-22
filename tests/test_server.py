@@ -10,7 +10,7 @@ import urllib.request
 from functools import partial
 from pathlib import Path
 
-from serve import NoCacheHandler
+from serve import NoCacheHandler, is_public_path
 from socketserver import ThreadingTCPServer
 
 
@@ -20,6 +20,10 @@ class _QuietHandler(NoCacheHandler):
 
 
 class ServerSecurityTests(unittest.TestCase):
+    def test_viewer_configuration_is_public_but_other_data_is_not(self) -> None:
+        self.assertTrue(is_public_path("/data/viewer.json"))
+        self.assertFalse(is_public_path("/data/state.json"))
+
     def test_serves_viewer_but_denies_secrets_and_traversal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

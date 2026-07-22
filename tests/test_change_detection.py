@@ -83,6 +83,18 @@ class StoreUpsertTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, r"stored model\(s\): model-a"):
                 PaperStore(vector_dimensions=3, data_directory=path, expected_model="model-b")
 
+    def test_delete_keys_removes_only_requested_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = PaperStore(vector_dimensions=3, data_directory=Path(directory))
+            store.add(
+                [_paper("A", "First", "", 1), _paper("B", "Second", "", 1)],
+                [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                [1, 1],
+                "test-model",
+            )
+            self.assertEqual(store.delete_keys({"B", "MISSING"}), 1)
+            self.assertEqual(store.existing_keys(), {"A"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,7 @@ const CLUSTER_DATA_URL = "../data/clusters.json";
 const USE_CURVED_EDGES = new URLSearchParams(location.search).get("edges") !== "straight";
 const MAX_TOPIC_LABELS = 14;
 const METADATA_URL = "../data/metadata.json";
+const VIEWER_CONFIG_URL = "../data/viewer.json";
 
 let topicColors = new Map(), topicRgbColors = new Map(), topicLabels = new Map();
 let graph, renderer, currentTopics = [];
@@ -16,6 +17,7 @@ let activeTopic = null, selectedNode = null, selectedEdge = null;
 let highlightedNodes = null, highlightedEdges = null;
 let hiddenTopics = new Set(), showWeakAssignments = true, topicLabelElements = [];
 let paperMeta = {};
+let viewerConfig = { library_type: "user", library_id: "" };
 
 async function readJson(path) {
   const sep = path.includes("?") ? "&" : "?";
@@ -41,6 +43,18 @@ async function readMapSnapshot() {
 async function loadMetadata() {
   try { paperMeta = await readJson(METADATA_URL); }
   catch { paperMeta = {}; }
+}
+
+async function loadViewerConfig() {
+  try { viewerConfig = await readJson(VIEWER_CONFIG_URL); }
+  catch { viewerConfig = { library_type: "user", library_id: "" }; }
+}
+
+function zoteroSelectUri(id) {
+  const key = encodeURIComponent(id);
+  if (viewerConfig.library_type === "group" && viewerConfig.library_id)
+    return `zotero://select/groups/${encodeURIComponent(viewerConfig.library_id)}/items/${key}`;
+  return `zotero://select/library/items/${key}`;
 }
 
 function hslToRgb(h, s, l) {
@@ -243,7 +257,7 @@ function showInfo(id, boxId) {
       <span class="link-count">${graph.degree(id)} links</span>
     </div>
     <div class="abstract">${abstract ? escapeHtml(abstract) : '<span class="empty">No abstract available.</span>'}</div>
-    <p class="zotero-link"><a href="zotero://select/library/items/${encodeURIComponent(id)}">Open in Zotero ↗</a></p>`;
+    <p class="zotero-link"><a href="${zoteroSelectUri(id)}">Open in Zotero ↗</a></p>`;
   box.classList.remove("hidden");
 }
 function hidePanels() {
@@ -394,47 +408,71 @@ function bindControls() {
     renderer.getCamera().animatedReset({ duration: 250 }));
 }
 
-function updateExistingColors(data) {
-  const byId = new Map(data.nodes.map((n) => [n.id, n]));
-  graph.forEachNode((id) => {
-    const n = byId.get(id); if (!n) return;
-    const c = topicColor(n.cluster, n.weak_assignment ? 0.5 : 1);
-    graph.mergeNodeAttributes(id, { title: n.title, label: n.title, cluster: n.cluster,
-      clusterLabel: n.cluster_label, weak_assignment: !!n.weak_assignment, baseColor: c, color: c,
-      borderColor: c, haloColor: c });
+function reconcileGraph(data) {
+  validateCoordinates(data.nodes);
+  const desiredNodes = new Map(data.nodes.map((n) => [n.id, n]));
+  const desiredEdges = new Map(data.edges.map((e) => [edgeId(e), e]));
+  const previousNodes = new Set(graph.nodes()), previousEdges = new Set(graph.edges());
+
+  graph.edges().forEach((id) => { if (!desiredEdges.has(id)) graph.dropEdge(id); });
+  graph.nodes().forEach((id) => { if (!desiredNodes.has(id)) graph.dropNode(id); });
+
+  data.nodes.forEach((n) => {
+    if (graph.hasNode(n.id)) graph.mergeNodeAttributes(n.id, nodeAttributes(n));
+    else graph.addNode(n.id, nodeAttributes(n));
   });
-  graph.forEachEdge((id, _a, s, t) => {
-    const c = edgeColor(graph.getNodeAttribute(s, "cluster"), graph.getNodeAttribute(t, "cluster"), 0.28);
-    graph.mergeEdgeAttributes(id, { baseColor: c, color: c });
+  data.edges.forEach((e) => {
+    const id = edgeId(e);
+    if (!graph.hasNode(e.source) || !graph.hasNode(e.target)) return;
+    const attributes = edgeAttributes(
+      e,
+      graph.getNodeAttribute(e.source, "cluster"),
+      graph.getNodeAttribute(e.target, "cluster"),
+    );
+    if (graph.hasEdge(id)) graph.mergeEdgeAttributes(id, attributes);
+    else graph.addUndirectedEdgeWithKey(id, e.source, e.target, attributes);
   });
+  graph.forEachNode((id, a) => graph.mergeNodeAttributes(id,
+    { degree: graph.degree(id), size: nodeSize(graph.degree(id), a.weak_assignment) }));
+
+  return {
+    addedNodes: data.nodes.filter((n) => !previousNodes.has(n.id)).length,
+    removedNodes: [...previousNodes].filter((id) => !desiredNodes.has(id)).length,
+    addedEdges: data.edges.filter((e) => !previousEdges.has(edgeId(e))).length,
+    removedEdges: [...previousEdges].filter((id) => !desiredEdges.has(id)).length,
+  };
 }
 
 async function refreshData() {
   try {
-    const [[data, topics]] = await Promise.all([readMapSnapshot(), loadMetadata()]);
-    validateCoordinates(data.nodes); currentTopics = topics.topics; generateColors(currentTopics);
-    const existing = new Set(graph.nodes());
-    const newNodes = data.nodes.filter((n) => !existing.has(n.id)), newNodeIds = new Set(newNodes.map((n) => n.id));
-    newNodes.forEach((n) => graph.addNode(n.id, nodeAttributes(n)));
-    data.edges.forEach((e) => {
-      if (!newNodeIds.has(e.source) && !newNodeIds.has(e.target)) return;
-      const id = edgeId(e);
-      if (graph.hasEdge(id) || !graph.hasNode(e.source) || !graph.hasNode(e.target)) return;
-      graph.addUndirectedEdgeWithKey(id, e.source, e.target,
-        edgeAttributes(e, graph.getNodeAttribute(e.source, "cluster"), graph.getNodeAttribute(e.target, "cluster")));
-    });
-    updateExistingColors(data);
-    graph.forEachNode((id, a) => graph.mergeNodeAttributes(id,
-      { degree: graph.degree(id), size: nodeSize(graph.degree(id), a.weak_assignment) }));
+    const [[data, topics]] = await Promise.all([
+      readMapSnapshot(), loadMetadata(), loadViewerConfig(),
+    ]);
+    currentTopics = topics.topics; generateColors(currentTopics);
+    const changes = reconcileGraph(data);
+    if (selectedNode && !graph.hasNode(selectedNode)) resetSelection();
+    document.getElementById("info2").classList.add("hidden");
+    selectedEdge = null;
+    if (selectedNode && graph.hasNode(selectedNode)) showInfo(selectedNode, "info");
+    if (activeTopic !== null && !currentTopics.some((topic) => topic.id === activeTopic))
+      activeTopic = null;
     buildLegend(currentTopics); updateStatistics(); updateVisibility(); createTopicLabels(currentTopics);
-    alert(newNodes.length ? `Added ${newNodes.length} new papers to the map.` :
-      "No new papers to add. Colors and legend were refreshed.");
+    const query = document.getElementById("search").value.trim().toLowerCase();
+    if (query) {
+      const matches = new Set(graph.filterNodes((_id, a) =>
+        (a.title || "").toLowerCase().includes(query)));
+      matches.size ? applyHighlight(matches) : clearHighlight();
+    } else restoreHighlight();
+    alert(`Map refreshed: +${changes.addedNodes}/−${changes.removedNodes} papers, ` +
+      `+${changes.addedEdges}/−${changes.removedEdges} links.`);
   } catch (err) { alert(`Refresh failed: ${err.message}`); }
 }
 
 async function start() {
   try {
-    const [[data, topics]] = await Promise.all([readMapSnapshot(), loadMetadata()]);
+    const [[data, topics]] = await Promise.all([
+      readMapSnapshot(), loadMetadata(), loadViewerConfig(),
+    ]);
     currentTopics = topics.topics; generateColors(currentTopics); graph = buildGraph(data);
     createRenderer(); bindRendererEvents(); bindControls(); buildLegend(currentTopics);
     updateStatistics(); createTopicLabels(currentTopics);

@@ -26,7 +26,7 @@ Zotero Web API
        -> graph.py: cosine k-nearest-neighbor links
        -> clustering.py: PCA, HDBSCAN, and c-TF-IDF topics
        -> layout.py: PCA and t-SNE coordinates
-  -> pipeline.py: graph.json, clusters.json, and state.json
+  -> pipeline.py: graph.json, clusters.json, metadata.json, viewer.json, and state.json
   -> web/: Graphology model and Sigma.js/WebGL renderer
 ```
 
@@ -40,7 +40,8 @@ Zotero Web API
   typed configuration objects. Secret values are never committed.
 - `zotero_source.py` defines the `Paper` data model and the Zotero source
   interface. `PyzoteroSource` fetches eligible top-level library items, using a
-  stored Zotero library version for incremental reads.
+  stored Zotero library version for incremental reads. It combines changed
+  top-level items, trashed items, and the read-only Zotero deleted-object log.
 - `embeddings.py` defines an embedding-provider interface. The current
   implementation uses OpenAI `text-embedding-3-small` and returns vectors plus
   provider-reported token usage.
@@ -54,7 +55,7 @@ Zotero Web API
   identity: an existing key is re-embedded only when its title or abstract
   changed, and `upsert` then replaces the row in place instead of duplicating it.
   Opening an existing cache validates its vector dimension and embedding model
-  before any data can be mixed.
+  before any data can be mixed. Deleted Zotero keys are removed locally.
 - `graph.py` connects each paper to up to eight neighbors whose cosine
   similarity is at least `0.5`. Endpoint pairs are sorted to turn asymmetric
   k-nearest-neighbor results into deduplicated undirected edges.
@@ -70,7 +71,8 @@ Zotero Web API
 
 - `sync_embeddings()` reads only Zotero changes when a saved version is
   available, embeds papers that are new or whose title/abstract changed, skips
-  cached papers whose text is unchanged, and returns the observed Zotero version.
+  cached papers whose text is unchanged, prunes remotely removed keys, and
+  returns the safely covered Zotero version.
 - `rebuild_map()` recalculates graph, topics, labels, and positions for every
   cached paper. It does not re-embed existing keys.
 - `add_to_map_incrementally()` gives each new paper neighbor links, a
@@ -80,7 +82,9 @@ Zotero Web API
   position are recomputed by the next `rebuild_map()`.
 - `sync_library()` combines embedding synchronization and incremental map
   insertion. It reconciles cache keys missing from the map after an interrupted
-  run and advances `state.json` only after map publication succeeds.
+  run, removes stale map nodes and incident edges, and advances `state.json` only
+  after map publication succeeds. Stored library identity prevents one Zotero
+  library's state from pruning another library's cache.
 - `data_migration.py` upgrades JSON metadata from the original legacy schema
   before any workflow reads it.
 
@@ -140,11 +144,26 @@ unclassified.
 
 ```json
 {
-  "last_zotero_version": 12345
+  "last_zotero_version": 12345,
+  "zotero_library_id": "1234567",
+  "zotero_library_type": "user"
 }
 ```
 
 The version is Zotero's library version, not an application release number.
+
+### `viewer.json`
+
+```json
+{
+  "library_id": "1234567",
+  "library_type": "group"
+}
+```
+
+This non-secret local file lets both renderers build the correct Zotero desktop
+URI. Personal items use `zotero://select/library/items/<key>`; group items use
+`zotero://select/groups/<groupID>/items/<key>`.
 
 `graph.json` and `clusters.json` carry the same publication revision. Every JSON
 file is first written to a temporary sibling and atomically replaced. Readers
@@ -184,6 +203,9 @@ duplicate the analysis pipeline.
 
 Both renderers retry briefly when the two JSON documents expose different
 revisions, preventing a browser refresh from combining files across a publish.
+The Refresh data control performs an exact reconciliation: it adds, updates, and
+removes nodes and edges and applies current coordinates while preserving the
+camera and valid selections.
 
 ### Sigma interaction state
 

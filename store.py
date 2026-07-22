@@ -111,6 +111,16 @@ class PaperStore:
         rows = self._select_rows(["key"])
         return {row["key"] for row in rows}
 
+    def delete_keys(self, keys: set[str] | list[str]) -> int:
+        """Remove Zotero keys from the local cache and return the removed count."""
+        existing = self.existing_keys()
+        to_delete = sorted(existing.intersection(keys))
+        for start in range(0, len(to_delete), 100):
+            batch = to_delete[start : start + 100]
+            quoted = ", ".join("'" + key.replace("'", "''") + "'" for key in batch)
+            self._table.delete(f"key IN ({quoted})")
+        return len(to_delete)
+
     def _build_rows(
         self,
         papers: list[Paper],

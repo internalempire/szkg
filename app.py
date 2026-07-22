@@ -21,7 +21,7 @@ def command_refresh(_args: argparse.Namespace) -> None:
     store, result = sync_embeddings(verbose=True, force_full=True)
     rebuild_map(store, verbose=True)
     commit_sync_state(result)
-    print("\nDone. Reload the browser page to see the rebuilt layout.")
+    print("\nDone. Click Refresh data in the open viewer to see the rebuilt layout.")
 
 
 def command_serve(_args: argparse.Namespace) -> None:
@@ -31,7 +31,7 @@ def command_serve(_args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Semantic map of a Zotero library.")
     subcommands = parser.add_subparsers(dest="command", required=True)
-    subcommands.add_parser("sync", help="Add new Zotero papers without rebuilding.").set_defaults(
+    subcommands.add_parser("sync", help="Apply Zotero changes without rebuilding.").set_defaults(
         func=command_sync
     )
     subcommands.add_parser("refresh", help="Rebuild topics, graph, and layout.").set_defaults(
