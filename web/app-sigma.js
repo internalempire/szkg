@@ -7,7 +7,6 @@ import { createNodeBorderProgram } from "@sigma/node-border";
 const GRAPH_DATA_URL = "../data/graph.json";
 const CLUSTER_DATA_URL = "../data/clusters.json";
 const USE_CURVED_EDGES = new URLSearchParams(location.search).get("edges") !== "straight";
-const MAX_TOPIC_LABELS = 14;
 const METADATA_URL = "../data/metadata.json";
 const VIEWER_CONFIG_URL = "../data/viewer.json";
 
@@ -15,7 +14,8 @@ let topicColors = new Map(), topicRgbColors = new Map(), topicLabels = new Map()
 let graph, renderer, currentTopics = [];
 let activeTopic = null, selectedNode = null, selectedEdge = null;
 let highlightedNodes = null, highlightedEdges = null;
-let hiddenTopics = new Set(), showWeakAssignments = true, topicLabelElements = [];
+let hiddenTopics = new Set(), showWeakAssignments = true, topicLabelEntries = [];
+let previewTopic = null, topicOverlayFrame = null;
 let paperMeta = {};
 let viewerConfig = { library_type: "user", library_id: "" };
 
@@ -84,11 +84,16 @@ function topicColor(topic, alpha = 1) {
   const [r, g, b] = topicRgbColors.get(topic) || [110, 120, 140];
   return alpha === 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
+function topicInk(topic) {
+  const [r, g, b] = topicRgbColors.get(topic) || [110, 120, 140];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 150 ? "#08101c" : "#ffffff";
+}
 
-function edgeColor(a, b, alpha = 1) {
-  const x = topicRgbColors.get(a) || [110, 120, 140], y = topicRgbColors.get(b) || [110, 120, 140];
-  const rgb = [(x[0] + y[0]) >> 1, (x[1] + y[1]) >> 1, (x[2] + y[2]) >> 1];
-  return alpha === 1 ? `rgb(${rgb.join(", ")})` : `rgba(${rgb.join(", ")}, ${alpha})`;
+function mutedTopicEdge(topic) {
+  const color = topicRgbColors.get(topic) || [110, 120, 140];
+  const background = [10, 14, 26], strength = 0.14;
+  return `rgb(${color.map((value, index) =>
+    Math.round(background[index] + (value - background[index]) * strength)).join(", ")})`;
 }
 
 function hashString(s) {
@@ -108,26 +113,30 @@ function validateCoordinates(nodes) {
   if (n) throw new Error(`Paper "${n.title || n.id}" has no position. Run 'python app.py refresh'.`);
 }
 function nodeSize(degree, weak_assignment, selected = false) {
-  let diameter = Math.min(30, 3 + degree * 0.85);
-  if (weak_assignment) diameter *= 0.85;
+  let diameter = Math.min(22, 3 + degree * 0.55);
+  if (weak_assignment) diameter *= 0.82;
   if (selected) diameter = Math.max(18, diameter) + 6;
   return diameter / 2;
 }
 
 function nodeAttributes(n, degree = 0) {
-  const color = topicColor(n.cluster, n.weak_assignment ? 0.5 : 1);
+  const topic = topicColor(n.cluster);
+  const color = n.weak_assignment ? "rgba(10, 14, 26, 0.86)" : topic;
+  const border = n.weak_assignment ? topicColor(n.cluster, 0.82) : topic;
   return { x: n.x, y: n.y, label: n.title, title: n.title, cluster: n.cluster,
     clusterLabel: n.cluster_label, weak_assignment: !!n.weak_assignment, degree, size: nodeSize(degree, !!n.weak_assignment),
-    color: color, baseColor: color, borderColor: color, haloColor: color,
+    color: color, baseColor: color, borderColor: border, baseBorderColor: border,
+    haloColor: color, baseHaloColor: n.weak_assignment ? "rgba(110, 120, 140, 0.08)" : color,
     type: "border", hidden: false, zIndex: 1 };
 }
 
 function edgeAttributes(e, topicA, topicB) {
-  const color = edgeColor(topicA, topicB, 0.28);
+  const sameTopic = topicA === topicB;
+  const color = sameTopic ? mutedTopicEdge(topicA) : "rgb(40, 48, 66)";
   // Thicker than a hairline so the shader's edge anti-aliasing has room to work;
   // sub-pixel edges cannot be smoothed and look jagged.
   return { weight: e.weight, size: 0.8 + (e.weight || 0.5) * 0.9,
-    color: color, baseColor: color, curvature: edgeCurvature(edgeId(e)),
+    color: color, baseColor: color, sameTopic, curvature: edgeCurvature(edgeId(e)),
     type: USE_CURVED_EDGES ? "curve" : "line", hidden: false, zIndex: 1 };
 }
 
@@ -148,10 +157,11 @@ function buildGraph(data) {
 function reduceNode(id, a) {
   const sel = id === selectedNode;
   const evid = highlightedNodes === null || highlightedNodes.has(id);
-  const color = evid ? a.baseColor : "rgba(110, 120, 140, 0.08)";
+  const color = evid ? a.baseColor : "rgba(110, 120, 140, 0.06)";
+  const border = evid ? a.baseBorderColor : "rgba(110, 120, 140, 0.08)";
   return { ...a, color: color, size: nodeSize(a.degree || 0, a.weak_assignment, sel),
-    borderColor: sel ? "#ffffff" : color,
-    haloColor: sel ? "rgba(255, 255, 255, 0.22)" : color,
+    borderColor: sel ? "#ffffff" : border,
+    haloColor: sel ? "rgba(255, 255, 255, 0.22)" : (evid ? a.baseHaloColor : color),
     zIndex: sel ? 100 : (evid ? 20 : 1) };
 }
 
@@ -234,7 +244,7 @@ function deselectNode() { selectedNode = null; selectedEdge = null; }
 function resetSelection() {
   activeTopic = null; deselectNode(); clearHighlight(false); hidePanels();
   document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
-  refreshRenderer();
+  refreshRenderer(); scheduleTopicOverlay();
 }
 
 function escapeHtml(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
@@ -252,7 +262,7 @@ function showInfo(id, boxId) {
     ${authors ? `<p class="authors">${escapeHtml(authors)}</p>` : ""}
     ${venue ? `<p class="journal">${escapeHtml(venue)}</p>` : ""}
     <div class="meta-row">
-      <span class="topic-chip" style="background:${topicColor(n.cluster)}">${escapeHtml(topicLabels.get(n.cluster) || "—")}</span>
+      <span class="topic-chip" style="background:${topicColor(n.cluster)};color:${topicInk(n.cluster)}">${escapeHtml(topicLabels.get(n.cluster) || "—")}</span>
       ${n.weak_assignment ? '<span class="weak-badge">weak assignment</span>' : ""}
       <span class="link-count">${graph.degree(id)} links</span>
     </div>
@@ -282,6 +292,7 @@ function bindRendererEvents() {
     document.getElementById("info2").classList.add("hidden");
     applyHighlight(new Set([node, ...graph.neighbors(node)]));
     showInfo(node, "info");
+    scheduleTopicOverlay();
   });
 
   renderer.on("clickEdge", ({ edge }) => {
@@ -293,8 +304,8 @@ function bindRendererEvents() {
   });
 
   renderer.on("clickStage", resetSelection);
-  renderer.getCamera().on("updated", updateTopicLabelPositions);
-  renderer.on("resize", updateTopicLabelPositions);
+  renderer.getCamera().on("updated", scheduleTopicOverlay);
+  renderer.on("resize", scheduleTopicOverlay);
   document.getElementById("cy").addEventListener("mousemove", (e) => {
     if (tooltip.classList.contains("hidden")) return;
     tooltip.style.left = `${e.offsetX + 14}px`; tooltip.style.top = `${e.offsetY + 14}px`;
@@ -310,7 +321,7 @@ function updateVisibility() {
     const hidden = graph.getNodeAttribute(s, "hidden") || graph.getNodeAttribute(t, "hidden");
     if (a.hidden !== hidden) graph.setEdgeAttribute(id, "hidden", hidden);
   });
-  refreshRenderer();
+  refreshRenderer(); scheduleTopicOverlay();
 }
 
 function updateStatistics() {
@@ -318,11 +329,19 @@ function updateStatistics() {
   document.getElementById("stats").textContent = `${graph.order} papers · ${topicCount} topics · ${graph.size} links`;
 }
 
+function applyTopicFilter() {
+  const query = document.getElementById("topic-search").value.trim().toLowerCase();
+  document.querySelectorAll("#legend li").forEach((li) => {
+    li.style.display = !query || li.dataset.search.includes(query) ? "flex" : "none";
+  });
+}
+
 function buildLegend(topics) {
   const ul = document.getElementById("legend"); ul.innerHTML = "";
   const sortedTopics = [...topics].sort((a, b) => (a.id === -1) - (b.id === -1) || b.paper_count - a.paper_count);
   sortedTopics.forEach((t) => {
     const li = document.createElement("li");
+    li.dataset.search = t.label.toLowerCase();
     if (hiddenTopics.has(t.id)) li.classList.add("topic-hidden");
     li.innerHTML = `<input type="checkbox" class="vis" ${hiddenTopics.has(t.id) ? "" : "checked"}
       title="Show or hide this topic on the map" />
@@ -333,49 +352,70 @@ function buildLegend(topics) {
     checkbox.addEventListener("change", (e) => {
       if (e.target.checked) hiddenTopics.delete(t.id); else hiddenTopics.add(t.id);
       li.classList.toggle("topic-hidden", !e.target.checked);
-      updateVisibility(); updateTopicLabelPositions();
+      updateVisibility();
     });
     li.addEventListener("mouseenter", () => {
-      if (!hiddenTopics.has(t.id))
+      if (!hiddenTopics.has(t.id)) {
+        previewTopic = t.id; scheduleTopicOverlay();
         applyHighlight(new Set(graph.filterNodes((_id, a) => a.cluster === t.id)));
+      }
     });
-    li.addEventListener("mouseleave", restoreHighlight);
+    li.addEventListener("mouseleave", () => {
+      previewTopic = null; restoreHighlight(); scheduleTopicOverlay();
+    });
     li.addEventListener("click", () => {
       const wasActive = activeTopic === t.id;
       deselectNode(); hidePanels();
       document.querySelectorAll("#legend li").forEach((x) => x.classList.remove("active"));
       activeTopic = wasActive ? null : t.id;
       if (activeTopic !== null) li.classList.add("active");
-      restoreHighlight();
+      restoreHighlight(); scheduleTopicOverlay();
     });
     ul.appendChild(li);
   });
+  applyTopicFilter();
+}
+
+function overlayFocusTopic() {
+  if (previewTopic !== null) return previewTopic;
+  if (activeTopic !== null) return activeTopic;
+  if (selectedNode && graph.hasNode(selectedNode)) return graph.getNodeAttribute(selectedNode, "cluster");
+  return null;
+}
+
+function topicOverlayDetail() {
+  const ratio = renderer.getCamera().getState().ratio;
+  return ratio < 0.42 ? 2 : ratio < 0.78 ? 1 : 0;
+}
+
+function updateTopicOverlay() {
+  topicOverlayFrame = null;
+  if (!renderer || !window.SemanticOverlays) return;
+  const nodes = graph.mapNodes((id, attributes) => {
+    const point = renderer.graphToViewport({ x: attributes.x, y: attributes.y });
+    return { id, x: point.x, y: point.y, cluster: attributes.cluster,
+      weak: attributes.weak_assignment, hidden: attributes.hidden };
+  });
+  const topics = currentTopics.map((topic) => ({ ...topic, color: topicColor(topic.id) }));
+  window.SemanticOverlays.update({
+    canvas: document.getElementById("topic-islands"), labels: topicLabelEntries,
+    topics, nodes, hiddenTopics, focusTopic: overlayFocusTopic(), detailLevel: topicOverlayDetail(),
+  });
+}
+
+function scheduleTopicOverlay() {
+  if (topicOverlayFrame !== null) return;
+  topicOverlayFrame = requestAnimationFrame(updateTopicOverlay);
 }
 
 function createTopicLabels(topics) {
-  const container = document.getElementById("topic-labels"); container.innerHTML = ""; topicLabelElements = [];
-  topics.filter((t) => t.id !== -1).sort((a, b) => b.paper_count - a.paper_count).slice(0, MAX_TOPIC_LABELS)
-    .forEach((t) => {
-      const nodes = graph.filterNodes((_id, a) => a.cluster === t.id);
-      if (!nodes.length) return;
-      let sx = 0, sy = 0;
-      nodes.forEach((id) => { sx += graph.getNodeAttribute(id, "x"); sy += graph.getNodeAttribute(id, "y"); });
-      const el = document.createElement("div"); el.className = "topic-label"; el.style.color = topicColor(t.id);
-      el.innerHTML = `${escapeHtml((t.label.split(",")[0] || "").trim())}<span class="count">${t.paper_count}</span>`;
-      container.appendChild(el); topicLabelElements.push({ id: t.id, el, x: sx / nodes.length, y: sy / nodes.length });
-    });
-  updateTopicLabelPositions();
-}
-
-function updateTopicLabelPositions() {
-  if (!renderer) return;
-  topicLabelElements.forEach((e) => {
-    const hidden = hiddenTopics.has(e.id); e.el.style.display = hidden ? "none" : "block";
-    if (!hidden) {
-      const p = renderer.graphToViewport({ x: e.x, y: e.y });
-      e.el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
-    }
-  });
+  topicLabelEntries = window.SemanticOverlays.buildLabels(
+    document.getElementById("topic-labels"), topics, topicColor,
+  );
+  window.SemanticOverlays.bindPointerReveal(
+    document.getElementById("canvas-wrap"), () => topicLabelEntries,
+  );
+  scheduleTopicOverlay();
 }
 
 function bindControls() {
@@ -383,15 +423,22 @@ function bindControls() {
     const q = e.target.value.trim().toLowerCase();
     activeTopic = null; deselectNode(); hidePanels();
     document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
-    if (!q) return clearHighlight();
+    if (!q) {
+      document.getElementById("search-status").textContent = "";
+      clearHighlight(); scheduleTopicOverlay(); return;
+    }
     const matches = new Set(graph.filterNodes((_id, a) => (a.title || "").toLowerCase().includes(q)));
+    document.getElementById("search-status").textContent = matches.size ? `${matches.size} found` : "No results";
     matches.size ? applyHighlight(matches) : clearHighlight();
+    scheduleTopicOverlay();
   });
+  document.getElementById("topic-search").addEventListener("input", applyTopicFilter);
   document.getElementById("toggle-weak").addEventListener("change", (e) => {
     showWeakAssignments = e.target.checked; updateVisibility();
   });
   document.getElementById("btn-reset").addEventListener("click", () => {
     resetSelection(); document.getElementById("search").value = "";
+    document.getElementById("search-status").textContent = "";
     renderer.getCamera().animatedReset({ duration: 250 });
   });
   document.querySelectorAll(".panel-close").forEach((btn) => btn.addEventListener("click", () => {
@@ -478,7 +525,7 @@ async function start() {
     updateStatistics(); createTopicLabels(currentTopics);
     requestAnimationFrame(() => {
       renderer.resize(); renderer.getCamera().setState({ x: 0.5, y: 0.5, ratio: 1, angle: 0 });
-      updateTopicLabelPositions(); document.getElementById("loading").classList.add("hidden");
+      scheduleTopicOverlay(); document.getElementById("loading").classList.add("hidden");
     });
   } catch (err) {
     document.getElementById("loading").textContent = `Could not load the map: ${err.message}`;

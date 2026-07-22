@@ -25,6 +25,7 @@ _PUBLIC_PATHS = {
     "/web/dist/app-sigma.bundle.js",
     "/web/index.html",
     "/web/loader.js",
+    "/web/semantic-overlays.js",
     "/web/style.css",
     "/web/vendor/cose-base.js",
     "/web/vendor/cytoscape-fcose.js",

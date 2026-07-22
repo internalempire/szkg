@@ -8,7 +8,7 @@ import numpy as np
 
 from clustering import NOISE_CLUSTER, cluster_papers
 from costs import estimate_cost, format_usd
-from layout import calculate_positions
+from layout import _compact_topic_positions, calculate_positions
 
 
 class CoreTests(unittest.TestCase):
@@ -38,6 +38,29 @@ class CoreTests(unittest.TestCase):
         positions = calculate_positions(np.eye(3, dtype=np.float32))
         self.assertEqual(positions.shape, (3, 2))
         self.assertTrue(np.isfinite(positions).all())
+
+    def test_topic_compaction_keeps_weak_members_more_peripheral(self) -> None:
+        positions = np.array([[0.0, 0.0], [10.0, 0.0], [20.0, 0.0]])
+        compacted = _compact_topic_positions(
+            positions,
+            assignments=[2, 2, 2],
+            weak_assignments=[False, False, True],
+        )
+
+        core_center = np.array([5.0, 0.0])
+        self.assertLess(
+            np.linalg.norm(compacted[0] - core_center),
+            np.linalg.norm(positions[0] - core_center),
+        )
+        self.assertGreater(
+            np.linalg.norm(compacted[2] - core_center),
+            np.linalg.norm(compacted[0] - core_center),
+        )
+
+    def test_unclassified_positions_are_not_compacted(self) -> None:
+        positions = np.array([[0.0, 1.0], [2.0, 3.0]])
+        compacted = _compact_topic_positions(positions, assignments=[-1, -1])
+        np.testing.assert_array_equal(compacted, positions)
 
     def test_cost_format_preserves_tiny_nonzero_amounts(self) -> None:
         amount = estimate_cost(1_000, "text-embedding-3-small")

@@ -4,7 +4,7 @@
   "scripts": {
     "build:web": "esbuild web/app-sigma.js --bundle --format=iife --platform=browser --target=es2020 --outfile=web/dist/app-sigma.bundle.js",
     "check:web": "esbuild web/app-sigma.js --bundle --format=iife --platform=browser --target=es2020 --outfile=/tmp/semantic-zotero-map-check.js",
-    "test": "npm run check:web && node --check web/app-cytoscape.js && node --check web/loader.js"
+    "test": "npm run check:web && node --check web/app-cytoscape.js && node --check web/semantic-overlays.js && node --check web/loader.js"
   },
   "dependencies": {
     "@sigma/edge-curve": "3.1.0",

@@ -14,9 +14,12 @@ basso.** Codice e Git restano la fonte di verità: all'avvio controlla sempre
 `git log --oneline -12` e `git status`.
 
 ### Stato Git
-Il lavoro della fase beta è su `main`, fino al commit `04cf8ea`
-("Smooth graph edges and add the publication year to the paper panel").
-Verifica lo stato di push: l'ultimo commit potrebbe essere ancora solo locale.
+Il lavoro della fase beta è su `main`, pubblicato su `origin/main` fino al commit
+`890992c` (`Revert "Improve large graph interaction performance"`). Il contenuto
+del repository a questo commit coincide con `e63d9fe` (`Handle Zotero deletions
+and reconcile viewer data`): il tentativo grafico `8ef4c81` è stato annullato
+integralmente su richiesta dell'utente. Il commit precedente di hardening è
+`df6c68f` (`Harden local serving and sync recovery`).
 
 ### Cosa è stato fatto in questa sessione
 Tutto seguendo le regole del progetto (pipeline scientifica intatta, dati privati
@@ -41,8 +44,9 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
 6. **Nuovo contratto dati locale `data/metadata.json`** (privato, ignorato da Git):
    `key → {title, authors, journal, year, abstract}`, letto **solo dal frontend**
    per il pannello. **Non** tocca LanceDB né `graph.json`. Popolato da una lettura
-   Zotero **in sola lettura, gratuita** (`sync_embeddings(force_full=True)`, usata
-   da `refresh`).
+   Zotero **in sola lettura** (`sync_embeddings(force_full=True)`, usata da
+   `refresh`); la lettura Zotero è gratuita, ma paper nuovi o testo modificato
+   possono comunque generare embedding OpenAI a pagamento.
 7. **`zotero_source.py`** raccoglie **autori, rivista, anno** (`format_authors`,
    `extract_publication`, `extract_year`) — **solo per la visualizzazione, MAI
    embeddati**: il testo semantico resta *titolo + abstract*.
@@ -56,7 +60,7 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
    italiane** in `clustering.py` (la libreria contiene paper in italiano) e il
    **migratore**. Sezione "migrazione" rimossa dal README; nuovo diagramma README.
 10. **Server locale ristretto (limite beta #1 RISOLTO).** `serve.py` usa una
-    allowlist: espone soltanto viewer, logo e i tre JSON necessari. `.env`, Git e
+    allowlist: espone soltanto viewer, logo e i quattro JSON necessari. `.env`, Git e
     LanceDB non sono più raggiungibili via HTTP; aggiunti header browser difensivi
     e un test loopback senza rete esterna.
 11. **Sync riprendibile e JSON atomici (limite #4 RISOLTO).** Tutti i JSON sono
@@ -82,6 +86,15 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
     contiene soltanto tipo e ID non segreti della libreria; entrambi i renderer
     usano `zotero://select/groups/{groupID}/items/{key}` per i gruppi e il formato
     `library/items` per la libreria personale.
+17. **Tentativo prestazioni grafiche ANNULLATO.** Il commit `8ef4c81` nascondeva
+    gli archi durante pan/zoom, attivava il picking degli archi solo dopo una
+    selezione, aggregava gli aggiornamenti Graphology e modificava il fallback
+    Cytoscape. L'utente non ha gradito il risultato: `890992c` ha ripristinato
+    byte per byte `e63d9fe`. **Non reintrodurre queste scelte come gruppo** senza
+    una nuova proposta circoscritta e una validazione visiva esplicita.
+
+L'utente ha confermato la validazione funzionale delle modifiche fino a
+`e63d9fe`, prima del tentativo grafico poi annullato.
 
 ### Snapshot dati locale aggiornato
 - **1837 paper**, **~70 temi** (dopo la correzione del clustering).
@@ -90,6 +103,8 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
 - Principio confermato: un paper **senza abstract viene embeddato dal solo
   titolo** (non escluso), con rappresentazione più debole; è escluso solo se manca
   il **titolo**. Elenca i mancanti con `python data_quality.py` (locale, gratis).
+- `data/state.json`, `data/viewer.json` e `data/metadata.json` sono presenti
+  localmente e restano esclusi da Git.
 
 ### Prossimi obiettivi
 1. **[PRIORITÀ] Resa grafica: archi sottilissimi E senza aliasing**, come il sito
@@ -106,9 +121,12 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
    monospace/pannelli riquadrati, legenda dei tipi di arco, etichette a livelli di
    dettaglio. **La palette dei temi NON va resa monocroma** (i colori sono
    informazione).
-3. **Fluidità del grafo** (1837 nodi / ~9954 archi): pan/zoom può risultare meno
-   fluido del riferimento. Manopole Sigma **non** ancora provate: `hideEdgesOnMove:
-   true`, archi dritti (`?edges=straight`), riduzione del numero di archi.
+3. **Fluidità del grafo** (1837 nodi / ~9954 archi): il tentativo combinato del
+   commit `8ef4c81` è stato provato e poi annullato perché il risultato non è
+   piaciuto all'utente. Lo stato approvato mantiene gli archi visibili durante
+   pan/zoom e il picking attivo. `?edges=straight` resta soltanto un confronto
+   diagnostico già disponibile. Valutare in futuro una modifica alla volta,
+   preservando un rollback immediato e chiedendo una verifica visiva.
 4. **Limiti beta ancora aperti** (lista più in basso): prezzi OpenAI (#13), test
    browser end-to-end (#14), lock dipendenze (#15),
    installer/onboarding (#16), scalabilità (#17).
@@ -119,10 +137,10 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
 - Per verificare il grafo **serve il browser reale dell'utente**: il pannello di
   anteprima usato in sessione spesso non dà larghezza al canvas ("Container has no
   width"), quindi non renderizza la mappa.
-- Aggiornare autori/rivista/anno/abstract = lettura Zotero **sola lettura, gratis**:
-  `python app.py refresh` (ricostruisce anche la mappa) oppure, per aggiornare solo
-  `metadata.json` senza toccare la mappa,
-  `python -c "from pipeline import sync_embeddings; sync_embeddings(force_full=True)"`.
+- Leggere Zotero è **sola lettura e gratis**, ma `refresh` o una chiamata diretta
+  a `sync_embeddings(force_full=True)` possono usare OpenAI e avere un costo se
+  trovano paper nuovi o testo modificato. Spiegare sempre questa distinzione
+  prima di eseguirli.
 
 ---
 
@@ -163,8 +181,7 @@ L'utente non è programmatore. Devi quindi:
 - proporre un piano prima di cambiamenti architetturali rilevanti e attendere la
   sua conferma quando le alternative cambiano materialmente il risultato;
 - usare inglese per codice, nomi di variabili, commenti, messaggi dell'app e
-  documentazione pubblica; la guida utente italiana resta separata in
-  `docs/USER_GUIDE.it.md`;
+  documentazione pubblica; la precedente `docs/USER_GUIDE.it.md` è stata rimossa;
 - commentare il codice in inglese chiaro. Le sole parole italiane ammesse nel
   codice sono dati linguistici intenzionali, come le stopword, e le vecchie
   chiavi riconosciute dal migratore.
@@ -179,7 +196,6 @@ cronologia pubblica e non eliminare modifiche dell'utente senza autorizzazione.
 2. Leggi per intero:
    - `README.md`;
    - `docs/ARCHITECTURE.md`;
-   - `docs/USER_GUIDE.it.md`;
    - i file direttamente interessati dal nuovo obiettivo.
 3. Controlla almeno:
 
@@ -236,9 +252,10 @@ python app.py serve
 - `refresh`: sincronizza gli embedding mancanti, poi ricostruisce grafo, temi,
   etichette e layout dell'intera cache. Riusa gli embedding esistenti, ma le
   isole possono spostarsi perché la struttura globale viene ricalcolata.
-- `sync`: chiede a Zotero le modifiche successive alla versione salvata,
-  embedda soltanto le chiavi mai viste e aggiunge i nuovi paper vicino ai loro
-  vicini senza muovere i nodi esistenti. È il flusso quotidiano.
+- `sync`: chiede a Zotero modifiche, elementi nel cestino e cancellazioni
+  successive alla versione salvata; aggiunge i paper nuovi, ri-embedda solo
+  titolo/abstract modificati e rimuove localmente gli elementi non più idonei,
+  senza ricalcolare il layout globale. È il flusso quotidiano.
 - `serve`: migra eventuali vecchi JSON, avvia un server HTTP solo su
   `127.0.0.1`, prova le porte `8000–8019` e apre il browser. Le risposte hanno
   `Cache-Control: no-store` per evitare file obsoleti.
@@ -283,7 +300,8 @@ Zotero Web API (sola lettura)
        -> clustering.py: PCA -> HDBSCAN -> etichette c-TF-IDF
        -> layout.py: PCA -> t-SNE -> coordinate 2D
   -> pipeline.py: orchestration di sync e refresh
-  -> data/graph.json + data/clusters.json + data/state.json
+  -> data/graph.json + data/clusters.json + data/metadata.json
+     + data/viewer.json + data/state.json
   -> Graphology + Sigma.js/WebGL nel browser
        oppure Cytoscape.js come fallback CPU
 ```
@@ -311,7 +329,8 @@ segreti.
 - L'implementazione corrente è `PyzoteroSource`.
 - Legge elementi top-level tramite Zotero Web API.
 - Esclude `attachment`, `note` e `annotation` e gli elementi senza titolo.
-- Usa `since=<library version>` per l'incrementale.
+- Usa `since=<library version>` per l'incrementale, include il cestino e consulta
+  il log read-only `/deleted` per propagare le rimozioni nella cache locale.
 - Il testo semantico corrente è soltanto `title + abstract`; PDF, full text,
   autori, tag e note non entrano nell'embedding.
 
@@ -346,9 +365,9 @@ Usa LanceDB locale in `data/lancedb/`. La tabella `papers` contiene:
 - modello, token, data dell'embedding;
 - `cluster_id` riservato, attualmente inizializzato a `-1`.
 
-La chiave Zotero è l'identità della cache. Questo evita costi duplicati, ma ha
-una conseguenza importante descritta nei limiti noti: una modifica del testo di
-un item già presente non forza oggi un nuovo embedding.
+La chiave Zotero è l'identità della cache. Questo evita costi duplicati: una
+modifica a titolo o abstract forza un upsert con un nuovo embedding, mentre
+modifiche a tag, collezioni o soli metadati di visualizzazione non lo fanno.
 
 ### `graph.py`
 
@@ -411,6 +430,7 @@ Tutto `data/` è privato, locale e ignorato da Git.
 
 ```json
 {
+  "revision": "same-publication-id",
   "nodes": [
     {
       "id": "ZOTERO_KEY",
@@ -438,6 +458,7 @@ Gli archi sono non orientati. Il cluster `-1` indica i paper non classificati.
 
 ```json
 {
+  "revision": "same-publication-id",
   "topics": [
     {
       "id": 3,
@@ -456,11 +477,36 @@ Gli archi sono non orientati. Il cluster `-1` indica i paper non classificati.
 
 ```json
 {
-  "last_zotero_version": 12345
+  "last_zotero_version": 12345,
+  "zotero_library_id": "1234567",
+  "zotero_library_type": "user"
 }
 ```
 
-È la versione della libreria Zotero, non la versione dell'app.
+È la versione della libreria Zotero, non la versione dell'app. Tipo e ID
+impediscono di applicare per errore lo stato incrementale di una libreria a
+un'altra.
+
+### `data/metadata.json`
+
+Mappa ogni chiave Zotero ai campi di sola visualizzazione `title`, `authors`,
+`journal`, `year` e `abstract`. Non contiene vettori e non modifica il testo
+semantico salvato in LanceDB.
+
+### `data/viewer.json`
+
+```json
+{
+  "library_id": "1234567",
+  "library_type": "group"
+}
+```
+
+Contiene soltanto l'identità non segreta necessaria per costruire il link desktop
+Zotero corretto. Non deve mai contenere la chiave API.
+
+`graph.json` e `clusters.json` condividono la stessa `revision`; i renderer
+rifiutano coppie appartenenti a pubblicazioni diverse e riprovano brevemente.
 
 Preserva questi contratti quando modifichi pipeline o renderer. Se devi
 cambiarli, pianifica esplicitamente una migrazione compatibile.
@@ -581,13 +627,11 @@ npm run build:web
 git diff --exit-code -- web/dist/app-sigma.bundle.js
 ```
 
-La suite automatica corrente contiene quattro test network-free:
-
-- librerie molto piccole restano non classificate;
-- il layout piccolo produce coordinate finite 2D;
-- la formattazione non nasconde costi minimi non nulli;
-- la migrazione italiano→inglese è corretta, atomica nel comportamento atteso e
-  idempotente.
+La suite automatica corrente contiene **34 test network-free**. Copre core
+scientifico e layout piccolo, migrazione, provider embedding, upsert e
+compatibilità LanceDB, metadati, pubblicazione atomica/revisionata, recupero del
+sync, cancellazioni Zotero, identità user/group e allowlist del server. Restano
+fuori i test browser end-to-end e le chiamate reali Zotero/OpenAI.
 
 `.github/workflows/ci.yml` esegue i test con Python 3.12 e Node 20, controlla il
 frontend e verifica che il bundle committato corrisponda al sorgente. Ha
@@ -600,8 +644,8 @@ il badge del README è statico al 100%.
 - Baseline funzionale precedente a questo handover: commit `21d2592`.
 - Il logo è conservato in `assets/logo.png`; al momento dello snapshot il
   README non lo incorpora più, in seguito a una modifica effettuata da GitHub.
-- Codice, commenti e interfaccia sono in inglese; guida utente separata in
-  italiano.
+- Codice, commenti e interfaccia sono in inglese; allo snapshot alpha esisteva
+  una guida italiana, poi rimossa durante la beta.
 - Sigma/WebGL è predefinito e verificato manualmente dall'utente.
 - Cytoscape resta disponibile come fallback.
 - I test Python, i controlli JavaScript, la ricostruzione del bundle e la CI
@@ -622,13 +666,10 @@ Snapshot locale non sensibile al momento dell'handover:
 - 686 assegnazioni deboli;
 - 54 nodi isolati;
 - coordinate finite per tutti i nodi;
-- `data/state.json` al momento non è presente.
+- `data/state.json` non era ancora presente nello snapshot alpha.
 
-L'assenza di `state.json` significa che il prossimo `sync` farà inizialmente una
-lettura completa dell'elenco Zotero; la cache dovrebbe comunque evitare di
-pagare di nuovo gli embedding già presenti, e al termine verrà salvata la
-versione corrente. Verifica questo comportamento prima di descriverlo come
-risolto.
+Questa assenza è soltanto storica: nello stato beta corrente `state.json` è
+presente e il flusso incrementale è stato validato dall'utente.
 
 Il test HTTP non equivale a un test end-to-end automatizzato del canvas. La
 validazione interattiva dell'alpha è stata manuale.

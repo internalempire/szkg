@@ -18,7 +18,10 @@
         </span>
       </h1>
       <p id="stats" class="muted">Loading...</p>
-      <input id="search" type="search" placeholder="Search paper titles..." autocomplete="off" />
+      <div class="search-group">
+        <input id="search" type="search" placeholder="Search paper titles..." autocomplete="off" />
+        <span id="search-status" aria-live="polite"></span>
+      </div>
       <div class="controls">
         <label class="switch">
           <input type="checkbox" id="toggle-weak" checked />
@@ -27,11 +30,21 @@
         <button id="btn-refresh" title="Reload data and insert only new papers">Refresh data</button>
         <button id="btn-reset" title="Return to the complete view">Reset view</button>
       </div>
-      <h2>Topics</h2>
+      <details class="map-key">
+        <summary>Map key</summary>
+        <span><i class="key-node strong"></i>Core paper</span>
+        <span><i class="key-node weak"></i>Weak assignment</span>
+        <span><i class="key-line"></i>Semantic link</span>
+      </details>
+      <div class="topics-heading">
+        <h2>Topics</h2>
+        <input id="topic-search" type="search" placeholder="Filter topics..." autocomplete="off" />
+      </div>
       <ul id="legend"></ul>
     </aside>
 
     <main id="canvas-wrap">
+      <canvas id="topic-islands" aria-hidden="true"></canvas>
       <div id="cy"></div>
       <div id="topic-labels"></div>
       <div id="loading">Loading the semantic map...</div>
@@ -53,6 +66,7 @@
       <div id="tooltip" class="hidden"></div>
     </main>
   </div>
+  <script src="semantic-overlays.js"></script>
   <script src="loader.js"></script>
 </body>
 </html>

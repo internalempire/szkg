@@ -22,6 +22,7 @@ class _QuietHandler(NoCacheHandler):
 class ServerSecurityTests(unittest.TestCase):
     def test_viewer_configuration_is_public_but_other_data_is_not(self) -> None:
         self.assertTrue(is_public_path("/data/viewer.json"))
+        self.assertTrue(is_public_path("/web/semantic-overlays.js"))
         self.assertFalse(is_public_path("/data/state.json"))
 
     def test_serves_viewer_but_denies_secrets_and_traversal(self) -> None:

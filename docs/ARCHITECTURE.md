@@ -63,7 +63,9 @@ Zotero Web API
   groups with HDBSCAN, and labels them with class-based TF-IDF keywords. An
   HDBSCAN outlier receives a weak topic assignment only when sufficiently
   similar classified neighbors can support it.
-- `layout.py` calculates two-dimensional positions with PCA followed by t-SNE.
+- `layout.py` calculates two-dimensional positions with PCA followed by t-SNE,
+  then gently pulls dense topic members toward their topic's robust median.
+  Weak neighbor-assigned members move less, preserving their visual uncertainty.
   The random seeds are fixed, and layout runs in Python so page loading does not
   block on a browser-side force simulation.
 
@@ -189,6 +191,10 @@ accidental removal.
   panels, and renderer-neutral page structure.
 - `web/style.css` contains the shared visual design.
 - `web/loader.js` selects a renderer from the URL.
+- `web/semantic-overlays.js` is renderer-neutral browser code for translucent
+  topic islands and adaptive topic labels. Islands use strong topic members so
+  weak assignments do not imply falsely precise semantic boundaries. A shared
+  pointer-proximity lens fades labels while preserving click-through behavior.
 - `web/app-sigma.js` is the source for the default renderer. It loads generated
   JSON, creates a Graphology graph, assigns colors and display attributes, and
   lets Sigma draw the map through WebGL.

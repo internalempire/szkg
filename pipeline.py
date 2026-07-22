@@ -332,7 +332,11 @@ def rebuild_map(
     )
     if verbose:
         print("-> Calculating map positions (PCA + t-SNE)...")
-    positions = calculate_positions(dataset.vectors)
+    positions = calculate_positions(
+        dataset.vectors,
+        assignments=result.assignments,
+        weak_assignments=result.weak_assignments,
+    )
 
     key_to_topic = dict(zip(dataset.keys, result.assignments))
     key_to_weak = dict(zip(dataset.keys, result.weak_assignments))

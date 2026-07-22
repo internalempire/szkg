@@ -110,10 +110,13 @@ The pipeline deliberately separates responsibilities:
 - `store.py` caches paper metadata and vectors in local LanceDB files.
 - `graph.py` creates an undirected k-nearest-neighbor similarity graph.
 - `clustering.py` discovers topics and derives keyword-based labels.
-- `layout.py` calculates deterministic two-dimensional positions in Python.
+- `layout.py` calculates deterministic two-dimensional positions in Python and
+  gently tightens dense topic islands while leaving weak members more peripheral.
 - `pipeline.py` coordinates full and incremental workflows.
 - `data_migration.py` upgrades metadata written by pre-English releases.
 - `web/app-sigma.js` implements the default WebGL map.
+- `web/semantic-overlays.js` draws shared soft topic islands and collision-free,
+  zoom-aware topic labels above both renderers.
 - `web/app-cytoscape.js` preserves the legacy CPU renderer as a fallback.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for data contracts and design
@@ -290,6 +293,10 @@ users should prefer `python app.py refresh`.
 - Click a node to show its metadata and semantic neighborhood.
 - Click an amber link to inspect the connected paper in a second panel.
 - Use the topic legend to preview, lock, show, or hide topic islands.
+- Filter the topic legend by keyword and use the map key to distinguish core
+  papers, weak assignments, and semantic links.
+- Move the pointer near a topic label to fade it and reveal clickable papers
+  underneath without moving the label's semantic anchor.
 - Use the search box to highlight matching titles.
 - Toggle weak assignments on or off.
 - Use the wheel, double-click, or `+` / `-` controls to zoom.

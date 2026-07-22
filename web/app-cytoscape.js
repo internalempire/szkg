@@ -8,10 +8,14 @@ let topicRgbColors = new Map();
 let topicLabels = new Map();
 let positionsById = new Map();
 let cy = null;
+let currentTopics = [];
 let activeTopic = null;
 let selectedNode = null;
 let hiddenTopics = new Set();
 let showWeakAssignments = true;
+let previewTopic = null;
+let topicLabelEntries = [];
+let topicOverlayFrame = null;
 let isMoving = false;
 let movementTimer = null;
 let viewerConfig = { library_type: "user", library_id: "" };
@@ -74,10 +78,15 @@ function generateColors(topics) {
 function topicColor(topic) {
   return topicColors.get(topic) || "rgb(110, 120, 140)";
 }
-function edgeColor(topicA, topicB) {
-  const a = topicRgbColors.get(topicA) || [110, 120, 140];
-  const b = topicRgbColors.get(topicB) || [110, 120, 140];
-  return `rgb(${(a[0] + b[0]) >> 1}, ${(a[1] + b[1]) >> 1}, ${(a[2] + b[2]) >> 1})`;
+function topicInk(topic) {
+  const [r, g, b] = topicRgbColors.get(topic) || [110, 120, 140];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 150 ? "#08101c" : "#ffffff";
+}
+function mutedTopicEdge(topic) {
+  const color = topicRgbColors.get(topic) || [110, 120, 140];
+  const background = [10, 14, 26], strength = 0.14;
+  return `rgb(${color.map((value, index) =>
+    Math.round(background[index] + (value - background[index]) * strength)).join(", ")})`;
 }
 function hashString(s) {
   let h = 2166136261;
@@ -115,6 +124,7 @@ function buildElements(graphData) {
   }));
   const edges = graphData.edges.map((e) => {
     const eid = `${e.source}__${e.target}`;
+    const topicA = topicById.get(e.source), topicB = topicById.get(e.target);
     return {
       group: "edges",
       data: {
@@ -122,7 +132,8 @@ function buildElements(graphData) {
         source: e.source,
         target: e.target,
         weight: e.weight,
-        color: edgeColor(topicById.get(e.source), topicById.get(e.target)),
+        color: topicA === topicB ? mutedTopicEdge(topicA) : "rgb(40, 48, 66)",
+        sameTopic: topicA === topicB,
         curv: edgeCurvature(eid),
       },
     };
@@ -135,11 +146,12 @@ function cytoscapeStyles() {
     {
       selector: "node",
       style: {
-        "background-color": (ele) => ele.data("color"),
-        opacity: (ele) => (ele.data("weak_assignment") ? 0.5 : 1),
+        "background-color": (ele) => ele.data("weak_assignment") ? "#0a0e1a" : ele.data("color"),
+        opacity: (ele) => (ele.data("weak_assignment") ? 0.88 : 1),
         width: (ele) => (ele.data("weak_assignment") ? WEAK_NODE_PX : NODE_PX),
         height: (ele) => (ele.data("weak_assignment") ? WEAK_NODE_PX : NODE_PX),
-        "border-width": 0,
+        "border-width": (ele) => ele.data("weak_assignment") ? 1.4 : 0,
+        "border-color": (ele) => ele.data("color"),
         "overlay-opacity": 0,
       },
     },
@@ -148,7 +160,7 @@ function cytoscapeStyles() {
       style: {
         width: (ele) => 0.3 + (ele.data("weight") || 0.5) * 0.7,
         "line-color": (ele) => ele.data("color"),
-        opacity: 0.28,
+        opacity: 1,
         "curve-style": "unbundled-bezier",
         "control-point-distance": (ele) => ele.data("curv"),
         "control-point-weight": 0.5,
@@ -222,7 +234,8 @@ function applyZoomScale() {
   cy.batch(() => {
     cy.nodes().style("width", (e) => nodeSize(e) / z);
     cy.nodes().style("height", (e) => nodeSize(e) / z);
-    cy.nodes().style("border-width", (e) => (e.hasClass("selected") ? 3 / z : 0));
+    cy.nodes().style("border-width", (e) =>
+      e.hasClass("selected") ? 3 / z : (e.data("weak_assignment") ? 1.4 / z : 0));
     cy.nodes(".selected").style("overlay-padding", 8 / z);
   });
 }
@@ -236,7 +249,8 @@ function resizeNode(node) {
   const z = cy.zoom();
   const s = nodeSize(node) / z;
   const sel = node.hasClass("selected");
-  node.style({ width: s, height: s, "border-width": sel ? 3 / z : 0 });
+  node.style({ width: s, height: s,
+    "border-width": sel ? 3 / z : (node.data("weak_assignment") ? 1.4 / z : 0) });
   if (sel) node.style("overlay-padding", 8 / z);
 }
 function resizeHighlightedEdges() {
@@ -253,54 +267,58 @@ function deselectNode() {
 
 function nodeSize(e) {
   const degree = e.data("degree") || 0;
-  let px = 3 + degree * 0.85; // Isolated ~3, common ~8-20, hub up to 30.
-  if (px > 30) px = 30;
-  if (e.data("weak_assignment")) px *= 0.85;
+  let px = 3 + degree * 0.55; // Isolated ~3, common ~6-16, hub up to 22.
+  if (px > 22) px = 22;
+  if (e.data("weak_assignment")) px *= 0.82;
   if (e.hasClass("selected")) px = Math.max(18, px) + 6;
   return px;
 }
 function calculateDegrees() {
   cy.batch(() => cy.nodes().forEach((n) => n.data("degree", n.degree())));
 }
-const MAX_TOPIC_LABELS = 14;
-let topicLabelElements = [];
-function createTopicLabels(topics) {
-  const container = document.getElementById("topic-labels");
-  container.innerHTML = "";
-  topicLabelElements = [];
-  const mainTopics = topics
-    .filter((t) => t.id !== -1)
-    .sort((a, b) => b.paper_count - a.paper_count)
-    .slice(0, MAX_TOPIC_LABELS);
-
-  for (const t of mainTopics) {
-    const nodes = cy.nodes().filter((n) => n.data("cluster") === t.id);
-    if (nodes.empty()) continue;
-    let sx = 0, sy = 0;
-    nodes.forEach((n) => { const p = n.position(); sx += p.x; sy += p.y; });
-    const cx = sx / nodes.length, cyc = sy / nodes.length;
-
-    const el = document.createElement("div");
-    el.className = "topic-label";
-    el.style.color = topicColor(t.id);
-    const name = (t.label.split(",")[0] || "").trim();
-    el.innerHTML = `${escape(name)}<span class="count">${t.paper_count}</span>`;
-    container.appendChild(el);
-    topicLabelElements.push({ id: t.id, el, cx, cy: cyc });
+function overlayFocusTopic() {
+  if (previewTopic !== null) return previewTopic;
+  if (activeTopic !== null) return activeTopic;
+  if (selectedNode) {
+    const node = cy.getElementById(selectedNode);
+    if (node.nonempty()) return node.data("cluster");
   }
-  updateTopicLabelPositions();
+  return null;
 }
-function updateTopicLabelPositions() {
-  if (!cy) return;
-  const z = cy.zoom(), p = cy.pan();
-  for (const e of topicLabelElements) {
-    const hidden = hiddenTopics.has(e.id);
-    e.el.style.display = hidden ? "none" : "block";
-    if (hidden) continue;
-    const rx = e.cx * z + p.x;
-    const ry = e.cy * z + p.y;
-    e.el.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%)`;
-  }
+
+function topicOverlayDetail() {
+  const zoom = cy.zoom();
+  return zoom > 1.7 ? 2 : zoom > 0.9 ? 1 : 0;
+}
+
+function updateTopicOverlay() {
+  topicOverlayFrame = null;
+  if (!cy || !window.SemanticOverlays) return;
+  const nodes = cy.nodes().map((node) => {
+    const point = node.renderedPosition();
+    return { id: node.id(), x: point.x, y: point.y, cluster: node.data("cluster"),
+      weak: node.data("weak_assignment"), hidden: node.hasClass("graph-hidden") };
+  });
+  const topics = currentTopics.map((topic) => ({ ...topic, color: topicColor(topic.id) }));
+  window.SemanticOverlays.update({
+    canvas: document.getElementById("topic-islands"), labels: topicLabelEntries,
+    topics, nodes, hiddenTopics, focusTopic: overlayFocusTopic(), detailLevel: topicOverlayDetail(),
+  });
+}
+
+function scheduleTopicOverlay() {
+  if (topicOverlayFrame !== null) return;
+  topicOverlayFrame = requestAnimationFrame(updateTopicOverlay);
+}
+
+function createTopicLabels(topics) {
+  topicLabelEntries = window.SemanticOverlays.buildLabels(
+    document.getElementById("topic-labels"), topics, topicColor,
+  );
+  window.SemanticOverlays.bindPointerReveal(
+    document.getElementById("canvas-wrap"), () => topicLabelEntries,
+  );
+  scheduleTopicOverlay();
 }
 
 function zoomBy(factor) {
@@ -317,6 +335,7 @@ function updateVisibility() {
     toHide.addClass("graph-hidden");
     toHide.connectedEdges().addClass("graph-hidden");
   });
+  scheduleTopicOverlay();
 }
 function applyHighlight(nodes) {
   cy.batch(() => {
@@ -350,6 +369,7 @@ function resetSelection() {
   clearHighlight();
   hidePanels();
   document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
+  scheduleTopicOverlay();
 }
 function showInfo(node, idBox) {
   const box = document.getElementById(idBox);
@@ -361,7 +381,7 @@ function showInfo(node, idBox) {
   body.innerHTML = `
     <p class="paper-title">${escape(node.data("title"))}</p>
     <p class="detail-row">
-      <span class="topic-chip" style="background:${topicColor(topic)}">${escape(topicLabels.get(topic) || "—")}</span>
+      <span class="topic-chip" style="background:${topicColor(topic)};color:${topicInk(topic)}">${escape(topicLabels.get(topic) || "—")}</span>
       ${weakAssignment ? '<span class="weak-badge">weak assignment</span>' : ""}
     </p>
     <p class="detail-row">Links: ${node.degree()}</p>
@@ -401,6 +421,7 @@ function bindGraphEvents() {
     clearHighlight();
     applyHighlight(node.closedNeighborhood().nodes());
     showInfo(node, "info");
+    scheduleTopicOverlay();
   });
   cy.on("tap", "edge", (ev) => {
     if (!selectedNode) return;
@@ -438,7 +459,7 @@ function bindGraphEvents() {
       isMoving = true;
       cy.edges().not(".edge-highlighted").not(".edge-selected").addClass("motion-hide");
     }
-    updateTopicLabelPositions();
+    scheduleTopicOverlay();
     clearTimeout(movementTimer);
     movementTimer = setTimeout(endMovement, 160);
   });
@@ -458,12 +479,20 @@ function updateStatistics() {
     `${nodeCount} papers · ${topicCount} topics · ${edgeCount} links`;
 }
 
+function applyTopicFilter() {
+  const query = document.getElementById("topic-search").value.trim().toLowerCase();
+  document.querySelectorAll("#legend li").forEach((li) => {
+    li.style.display = !query || li.dataset.search.includes(query) ? "flex" : "none";
+  });
+}
+
 function buildLegend(topics) {
   const ul = document.getElementById("legend");
   ul.innerHTML = "";
   const sortedTopics = [...topics].sort((a, b) => (a.id === -1) - (b.id === -1) || b.paper_count - a.paper_count);
   for (const t of sortedTopics) {
     const li = document.createElement("li");
+    li.dataset.search = t.label.toLowerCase();
     if (hiddenTopics.has(t.id)) li.classList.add("topic-hidden");
     li.innerHTML = `
       <input type="checkbox" class="vis" ${hiddenTopics.has(t.id) ? "" : "checked"}
@@ -478,14 +507,16 @@ function buildLegend(topics) {
       else hiddenTopics.add(t.id);
       li.classList.toggle("topic-hidden", !e.target.checked);
       updateVisibility();
-      updateTopicLabelPositions();
     });
     li.addEventListener("mouseenter", () => {
       if (hiddenTopics.has(t.id)) return;
+      previewTopic = t.id; scheduleTopicOverlay();
       clearHighlight();
       applyHighlight(cy.nodes().filter((n) => n.data("cluster") === t.id));
     });
-    li.addEventListener("mouseleave", () => restoreHighlight());
+    li.addEventListener("mouseleave", () => {
+      previewTopic = null; restoreHighlight(); scheduleTopicOverlay();
+    });
     li.addEventListener("click", () => {
       const wasActive = activeTopic === t.id;
       deselectNode();
@@ -494,10 +525,11 @@ function buildLegend(topics) {
 
       activeTopic = wasActive ? null : t.id;
       if (activeTopic !== null) li.classList.add("active");
-      restoreHighlight();
+      restoreHighlight(); scheduleTopicOverlay();
     });
     ul.appendChild(li);
   }
+  applyTopicFilter();
 }
 
 function bindControls() {
@@ -509,13 +541,18 @@ function bindControls() {
     hidePanels();
 
     if (!q) {
+      document.getElementById("search-status").textContent = "";
       clearHighlight();
+      scheduleTopicOverlay();
       return;
     }
     const matches = cy.nodes().filter((n) => (n.data("title") || "").toLowerCase().includes(q));
+    document.getElementById("search-status").textContent = matches.length ? `${matches.length} found` : "No results";
     clearHighlight();
     if (matches.length) applyHighlight(matches);
+    scheduleTopicOverlay();
   });
+  document.getElementById("topic-search").addEventListener("input", applyTopicFilter);
   document.getElementById("toggle-weak").addEventListener("change", (e) => {
     showWeakAssignments = e.target.checked;
     updateVisibility();
@@ -524,6 +561,7 @@ function bindControls() {
   document.getElementById("btn-reset").addEventListener("click", () => {
     resetSelection();
     document.getElementById("search").value = "";
+    document.getElementById("search-status").textContent = "";
     cy.fit(undefined, 30);
     applyZoomScale();
   });
@@ -555,6 +593,7 @@ async function refreshData() {
     topicColors = new Map();
     topicRgbColors = new Map();
     topicLabels = new Map();
+    currentTopics = topics.topics;
     generateColors(topics.topics);
     const changes = reconcileGraphData(graphData);
     if (selectedNode && cy.getElementById(selectedNode).empty()) {
@@ -607,11 +646,12 @@ function reconcileGraphData(graphData) {
       if (source.empty() || target.empty()) return;
       const id = `${e.source}__${e.target}`;
       let edge = cy.getElementById(id);
+      const topicA = source.data("cluster"), topicB = target.data("cluster");
       const data = { id, source: e.source, target: e.target, weight: e.weight,
-        color: edgeColor(source.data("cluster"), target.data("cluster")),
-        curv: edgeCurvature(id) };
+        color: topicA === topicB ? mutedTopicEdge(topicA) : "rgb(40, 48, 66)",
+        sameTopic: topicA === topicB, curv: edgeCurvature(id) };
       if (edge.empty()) edge = cy.add({ group: "edges", data });
-      else edge.data({ weight: e.weight, color: data.color, curv: data.curv });
+      else edge.data({ weight: e.weight, color: data.color, sameTopic: data.sameTopic, curv: data.curv });
     });
   });
   return {
@@ -627,7 +667,8 @@ async function start() {
     const [[graphData, topics]] = await Promise.all([
       readMapSnapshot(), loadViewerConfig(),
     ]);
-    generateColors(topics.topics);
+    currentTopics = topics.topics;
+    generateColors(currentTopics);
 
     cy = cytoscape({
       container: document.getElementById("cy"),
