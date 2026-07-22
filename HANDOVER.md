@@ -7,6 +7,101 @@
 
 ---
 
+## Aggiornamento più recente — fase beta (22 luglio 2026, leggi prima questo)
+
+**Questa sezione integra e, dove diverge, prevale sullo snapshot alpha più in
+basso.** Codice e Git restano la fonte di verità: all'avvio controlla sempre
+`git log --oneline -12` e `git status`.
+
+### Stato Git
+Il lavoro della fase beta è su `main`, fino al commit `04cf8ea`
+("Smooth graph edges and add the publication year to the paper panel").
+Verifica lo stato di push: l'ultimo commit potrebbe essere ancora solo locale.
+
+### Cosa è stato fatto in questa sessione
+Tutto seguendo le regole del progetto (pipeline scientifica intatta, dati privati
+fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
+
+1. **Metadati modificati → ri-embedding (limite alpha #2 RISOLTO).** `sync`
+   riconosce i paper il cui *titolo o abstract* è cambiato e li ri-embedda
+   (`pipeline._partition_by_change` + `store.upsert` con `merge_insert`, senza
+   duplicare righe). Un semplice cambio di tag/collezione NON viene ripagato.
+2. **Clustering corretto.** `min_samples` era `3` e collassava quasi tutti i paper
+   in **un unico tema**; portato a **`1`** in `clustering.py` e
+   `pipeline.rebuild_map` → ~70 temi coerenti. Aggiunto un test di regressione.
+3. **Tema sempre scuro.** Rimossa la palette chiara e `prefers-color-scheme` in
+   `web/style.css`. NB: era stato aggiunto e poi **rimosso** un pulsante
+   chiaro/scuro, perché il rendering del grafo non era ottimizzato per lo sfondo
+   chiaro.
+4. **Logo e nome nella barra laterale.** `assets/logo.png` ora è l'icona a
+   cervello-rete; la sidebar mostra logo + **"SZKG"** + sottotitolo.
+5. **Pannello di dettaglio del paper (in basso a destra).** Al clic su un nodo:
+   titolo, autori, **rivista · anno**, tema, numero collegamenti, badge weak,
+   **abstract completo scorrevole**, link "Open in Zotero".
+6. **Nuovo contratto dati locale `data/metadata.json`** (privato, ignorato da Git):
+   `key → {title, authors, journal, year, abstract}`, letto **solo dal frontend**
+   per il pannello. **Non** tocca LanceDB né `graph.json`. Popolato da una lettura
+   Zotero **in sola lettura, gratuita** (`sync_embeddings(force_full=True)`, usata
+   da `refresh`).
+7. **`zotero_source.py`** raccoglie **autori, rivista, anno** (`format_authors`,
+   `extract_publication`, `extract_year`) — **solo per la visualizzazione, MAI
+   embeddati**: il testo semantico resta *titolo + abstract*.
+8. **Archi più lisci (aliasing ridotto).** Spessore aumentato
+   (`minEdgeThickness 1.1`, `size ~0.8–1.7`) + **MSAA 4×** forzato sui layer WebGL
+   (patch di `getContext` in `createRenderer`). Il picking usa framebuffer
+   separati, quindi hover/click NON sono toccati.
+9. **Documentazione English-only.** Eliminato `docs/USER_GUIDE.it.md`; prosa
+   "Italian"→"legacy" in README/ARCHITECTURE/`data_migration`; tradotti 2 commenti
+   italiani nel fallback Cytoscape. **MANTENUTI di proposito**: le **stopword
+   italiane** in `clustering.py` (la libreria contiene paper in italiano) e il
+   **migratore**. Sezione "migrazione" rimossa dal README; nuovo diagramma README.
+
+### Snapshot dati locale aggiornato
+- **1837 paper**, **~70 temi** (dopo la correzione del clustering).
+- `data/metadata.json`: 1622 con autori, 1582 con rivista, 1619 con anno,
+  **1295 con abstract → 542 senza abstract**.
+- Principio confermato: un paper **senza abstract viene embeddato dal solo
+  titolo** (non escluso), con rappresentazione più debole; è escluso solo se manca
+  il **titolo**. Elenca i mancanti con `python data_quality.py` (locale, gratis).
+
+### Prossimi obiettivi
+1. **[PRIORITÀ] Resa grafica: archi sottilissimi E senza aliasing**, come il sito
+   di riferimento **Bevy Constellation** (`https://crates.rugaex.com`). Stato: per
+   togliere l'aliasing abbiamo dovuto **ispessire** gli archi; il MSAA hardware da
+   solo NON basta, perché Sigma disegna gli archi come quad con sfumatura shader
+   (l'MSAA leviga la geometria, non la sfumatura interna). Ipotesi sul riferimento:
+   usa **canvas 2D** (anti-aliasing nativo del browser), fattibile con ~250 archi
+   ma non coi nostri ~10.000. Opzione da valutare: **supersampling** (rendering a
+   risoluzione maggiore → linee sottili e lisce, ma più costo GPU, da bilanciare
+   con la fluidità).
+2. **Stile ispirato a Bevy (interfaccia).** Analizzato con l'utente; per ora
+   applicato **solo** il pannello di dettaglio. Idee non ancora fatte: tipografia
+   monospace/pannelli riquadrati, legenda dei tipi di arco, etichette a livelli di
+   dettaglio. **La palette dei temi NON va resa monocroma** (i colori sono
+   informazione).
+3. **Fluidità del grafo** (1837 nodi / ~9954 archi): pan/zoom può risultare meno
+   fluido del riferimento. Manopole Sigma **non** ancora provate: `hideEdgesOnMove:
+   true`, archi dritti (`?edges=straight`), riduzione del numero di archi.
+4. **Limiti beta ancora aperti** (lista più in basso): sicurezza del server locale
+   (#1), paper cancellati (#3), atomicità scritture JSON (#4), refresh browser
+   append-only (#6), jitter incrementale (#7), URI Zotero group library (#10),
+   guardie compatibilità embedding (#11), tema `unclassified` incrementale (#12),
+   prezzi OpenAI (#13), test di integrazione (#14), lock dipendenze (#15),
+   installer/onboarding (#16), scalabilità (#17).
+
+### Note operative
+- Dopo ogni modifica a `web/app-sigma.js`: `npm run build:web` e **committa il
+  bundle** `web/dist/app-sigma.bundle.js` (la CI verifica che coincida col sorgente).
+- Per verificare il grafo **serve il browser reale dell'utente**: il pannello di
+  anteprima usato in sessione spesso non dà larghezza al canvas ("Container has no
+  width"), quindi non renderizza la mappa.
+- Aggiornare autori/rivista/anno/abstract = lettura Zotero **sola lettura, gratis**:
+  `python app.py refresh` (ricostruisce anche la mappa) oppure, per aggiornare solo
+  `metadata.json` senza toccare la mappa,
+  `python -c "from pipeline import sync_embeddings; sync_embeddings(force_full=True)"`.
+
+---
+
 Sei il nuovo assistente responsabile dello sviluppo di **Semantic Zotero
 Knowledge Graph (SZKG)**. Stai prendendo in consegna un'applicazione locale che
 trasforma una libreria Zotero in una mappa semantica interattiva di paper.
