@@ -311,6 +311,12 @@ To compare Sigma curved edges with straight edges:
 http://127.0.0.1:8000/web/index.html?edges=straight
 ```
 
+For smoother navigation on large maps, both renderers temporarily hide links
+while the camera is moving and restore them as soon as it stops. Sigma also
+enables link hit-testing only after a paper has been selected, when clicking a
+highlighted semantic link is meaningful. Curved links remain the default at
+rest; `?edges=straight` is the lighter diagnostic option for slower devices.
+
 ## Cost behavior
 
 Only new or edited papers incur an OpenAI API cost. Before sending text, the app

@@ -106,9 +106,14 @@ fuori da Git, bundle ricostruito dopo ogni modifica a `web/app-sigma.js`).
    monospace/pannelli riquadrati, legenda dei tipi di arco, etichette a livelli di
    dettaglio. **La palette dei temi NON va resa monocroma** (i colori sono
    informazione).
-3. **Fluidità del grafo** (1837 nodi / ~9954 archi): pan/zoom può risultare meno
-   fluido del riferimento. Manopole Sigma **non** ancora provate: `hideEdgesOnMove:
-   true`, archi dritti (`?edges=straight`), riduzione del numero di archi.
+3. **Fluidità del grafo (punto 7 implementato).** Sigma nasconde gli archi solo
+   durante pan/zoom e li ripristina appena la camera si ferma; l'hit-testing degli
+   archi è attivo soltanto mentre un paper è selezionato. Refresh e filtri usano
+   aggiornamenti Graphology aggregati, le etichette HTML sono limitate a un
+   aggiornamento per frame e Cytoscape nasconde gli archi durante il movimento.
+   Gli archi restano curvi a riposo; `?edges=straight` è ancora disponibile per
+   confronto e per dispositivi meno potenti. Da validare con benchmark browser
+   ripetibili prima di fissare una soglia prestazionale formale.
 4. **Limiti beta ancora aperti** (lista più in basso): prezzi OpenAI (#13), test
    browser end-to-end (#14), lock dipendenze (#15),
    installer/onboarding (#16), scalabilità (#17).
@@ -507,8 +512,9 @@ File sorgente: `web/app-sigma.js`. Bundle browser offline:
   lo zoom.
 - I reducer Sigma trasformano stato di ricerca, selezione e visibilità in
   attributi WebGL senza modificare i JSON.
-- Gli archi estranei vengono nascosti durante una selezione, ma restano visibili
-  normalmente durante pan e zoom.
+- Gli archi estranei vengono nascosti durante una selezione. Durante pan e zoom
+  tutti gli archi spariscono temporaneamente per mantenere fluida la camera e
+  ricompaiono appena il movimento termina.
 
 Il browser carica il bundle già compilato: gli utenti finali non hanno bisogno
 di Node.js. Dopo ogni modifica a `web/app-sigma.js`, eseguire e committare:
