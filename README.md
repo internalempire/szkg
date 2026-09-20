@@ -374,6 +374,33 @@ shared group library. Zotero documents API authentication and version-based
 incremental reads in its
 [Web API documentation](https://www.zotero.org/support/dev/web_api/v3/basics).
 
+### Zotero credentials: quick setup
+
+1. **Sync your library.** In Zotero desktop, open **Settings → Sync**, sign in
+   to your Zotero account, and finish a sync. Check that your papers appear in
+   your library on [zotero.org](https://www.zotero.org/). Only metadata sync is
+   needed; PDF/file syncing is not required. See [Zotero's sync guide](https://www.zotero.org/support/sync).
+2. **Create a dedicated API key.** Sign in to [API Keys](https://www.zotero.org/settings/keys)
+   and choose **Create new private key**. Name it `SZKG`, allow library read
+   access, and leave write access disabled. For a group library, also grant
+   read access to that group. Notes and file access are not needed.
+3. **Copy the key and library ID.** Save the generated key securely. For a
+   personal library, copy the numeric user ID shown on the API Keys page
+   (not your username) and use library type `user`. For a group, use type
+   `group` and the numeric ID in its Zotero group-page URL:
+   `https://www.zotero.org/groups/1234567/...` → `1234567`.
+4. **Connect SZKG.** Paste the ID, library type and key into **Library setup &
+   sync → Connection settings**, then choose **Save local settings → Preview
+   sync** to verify access without purchasing embeddings. Alternatively, use
+   the three `ZOTERO_*` entries in `.env` above. Never publish your key.
+
+**Do I need to enable an API in Zotero desktop?** No: SZKG uses the hosted
+Web API, authorized by the key above. **Settings → Advanced → Allow other
+applications on this computer to communicate with Zotero** enables the
+separate [local API](https://www.zotero.org/support/dev/web_api/v3/local_api),
+which this project does not use. You do not need to enable it or make your
+library public.
+
 ## First run
 
 ### Guided browser workflow
