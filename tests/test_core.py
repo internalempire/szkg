@@ -39,6 +39,14 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(positions.shape, (3, 2))
         self.assertTrue(np.isfinite(positions).all())
 
+    def test_layout_boundaries_including_exactly_five_papers(self) -> None:
+        for count in (0, 1, 2, 4, 5, 6):
+            with self.subTest(papers=count):
+                vectors = np.eye(count, 6, dtype=np.float32)
+                positions = calculate_positions(vectors)
+                self.assertEqual(positions.shape, (count, 2))
+                self.assertTrue(np.isfinite(positions).all())
+
     def test_topic_compaction_keeps_weak_members_more_peripheral(self) -> None:
         positions = np.array([[0.0, 0.0], [10.0, 0.0], [20.0, 0.0]])
         compacted = _compact_topic_positions(

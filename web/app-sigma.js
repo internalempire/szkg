@@ -16,12 +16,15 @@ let activeTopic = null, selectedNode = null, selectedEdge = null;
 let highlightedNodes = null, highlightedEdges = null;
 let hiddenTopics = new Set(), showWeakAssignments = true, topicLabelEntries = [];
 let previewTopic = null, topicOverlayFrame = null;
+let overlayGeometry = null, overlayAngle = null;
 let paperMeta = {};
+let explorer = null, refreshInProgress = false;
 let viewerConfig = { library_type: "user", library_id: "" };
 
 async function readJson(path) {
   const sep = path.includes("?") ? "&" : "?";
-  const response = await fetch(`${path}${sep}t=${Date.now()}`, { cache: "no-store" });
+  const profile = window.LibraryControl?.profileId;
+  const response = await fetch(`${path}${sep}t=${Date.now()}${profile ? `&profile=${encodeURIComponent(profile)}` : ""}`, { cache: "no-store" });
   if (!response.ok) throw new Error(`Could not read ${path}`);
   return response.json();
 }
@@ -47,10 +50,11 @@ async function loadMetadata() {
 
 async function loadViewerConfig() {
   try { viewerConfig = await readJson(VIEWER_CONFIG_URL); }
-  catch { viewerConfig = { library_type: "user", library_id: "" }; }
+  catch { viewerConfig = window.LibraryControl?.viewerIdentity || { source: "unknown" }; }
 }
 
 function zoteroSelectUri(id) {
+  if (["papers", "unknown"].includes(viewerConfig.source)) return null;
   const key = encodeURIComponent(id);
   if (viewerConfig.library_type === "group" && viewerConfig.library_id)
     return `zotero://select/groups/${encodeURIComponent(viewerConfig.library_id)}/items/${key}`;
@@ -70,7 +74,8 @@ function generateColors(topics) {
   topicColors = new Map(); topicRgbColors = new Map(); topicLabels = new Map();
   topics.filter((t) => t.id !== -1).sort((a, b) => b.paper_count - a.paper_count)
     .forEach((t, i) => {
-      const rgb = hslToRgb((i * 137.5) % 360, 0.72, 0.58);
+      const colorIndex = Number.isInteger(t.color_index) && t.color_index >= 0 ? t.color_index : i;
+      const rgb = hslToRgb((colorIndex * 137.5) % 360, 0.72, 0.58);
       topicRgbColors.set(t.id, rgb);
       topicColors.set(t.id, `rgb(${rgb.join(", ")})`);
       topicLabels.set(t.id, t.label);
@@ -238,37 +243,100 @@ function restoreHighlight() {
     applyHighlight(new Set([selectedNode, ...graph.neighbors(selectedNode)]));
   else if (activeTopic !== null)
     applyHighlight(new Set(graph.filterNodes((_id, a) => a.cluster === activeTopic)));
+  else if (explorer?.hasSearch())
+    applyHighlight(new Set(explorer.matchingIds()));
   else refreshRenderer();
 }
 function deselectNode() { selectedNode = null; selectedEdge = null; }
 function resetSelection() {
-  activeTopic = null; deselectNode(); clearHighlight(false); hidePanels();
+  activeTopic = null; previewTopic = null; deselectNode(); clearHighlight(false); hidePanels();
   document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
-  refreshRenderer(); scheduleTopicOverlay();
+  restoreHighlight(); scheduleTopicOverlay(); explorer?.update();
 }
 
-function escapeHtml(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
-function showInfo(id, boxId) {
+function showInfo(id, boxId) { explorer.showInfo(id, boxId); }
+
+function selectPaper(id) {
   if (!graph.hasNode(id)) return;
-  const n = graph.getNodeAttributes(id), box = document.getElementById(boxId);
-  const meta = paperMeta[id] || {};
-  const authors = (meta.authors || "").trim();
-  const journal = (meta.journal || "").trim();
-  const year = (meta.year || "").trim();
-  const venue = [journal, year].filter(Boolean).join(" · ");
-  const abstract = (meta.abstract || "").trim();
-  box.querySelector(".panel-body").innerHTML = `
-    <p class="paper-title">${escapeHtml(n.title)}</p>
-    ${authors ? `<p class="authors">${escapeHtml(authors)}</p>` : ""}
-    ${venue ? `<p class="journal">${escapeHtml(venue)}</p>` : ""}
-    <div class="meta-row">
-      <span class="topic-chip" style="background:${topicColor(n.cluster)};color:${topicInk(n.cluster)}">${escapeHtml(topicLabels.get(n.cluster) || "—")}</span>
-      ${n.weak_assignment ? '<span class="weak-badge">weak assignment</span>' : ""}
-      <span class="link-count">${graph.degree(id)} links</span>
-    </div>
-    <div class="abstract">${abstract ? escapeHtml(abstract) : '<span class="empty">No abstract available.</span>'}</div>
-    <p class="zotero-link"><a href="${zoteroSelectUri(id)}">Open in Zotero ↗</a></p>`;
-  box.classList.remove("hidden");
+  activeTopic = null; previewTopic = null;
+  selectedNode = id; selectedEdge = null;
+  document.getElementById("info2").classList.add("hidden");
+  applyHighlight(new Set([id, ...graph.neighbors(id)]));
+  showInfo(id, "info"); scheduleTopicOverlay(); explorer.update();
+}
+
+function createExplorer(data) {
+  explorer = window.PaperExplorer.create({
+    state: () => ({ hiddenTopics, showWeakAssignments, activeTopic, selectedNode }),
+    renderer: "sigma",
+    select: selectPaper,
+    camera: () => renderer.getCamera().getState(),
+    restoreCamera(camera) {
+      // Supersede any running animation; duration zero divides by zero in Sigma 3.
+      renderer.getCamera().animate(camera, { duration: 1 });
+    },
+    restoreFilters(state) {
+      hiddenTopics = new Set(state.hiddenTopics); showWeakAssignments = state.showWeakAssignments;
+      activeTopic = state.activeTopic; previewTopic = null; updateVisibility(); restoreHighlight();
+    },
+    color: topicColor, ink: topicInk, zoteroUri: zoteroSelectUri,
+    resize() { renderer.resize(); scheduleTopicOverlay(); },
+    search(ids) {
+      activeTopic = null; previewTopic = null; deselectNode(); hidePanels();
+      ids === null ? clearHighlight() : applyHighlight(new Set(ids));
+      scheduleTopicOverlay();
+    },
+    open(id) {
+      selectPaper(id);
+      const point = renderer.getNodeDisplayData(id);
+      if (point) renderer.getCamera().animate({ x: point.x, y: point.y,
+        ratio: Math.min(renderer.getCamera().getState().ratio, 0.35) },
+        { duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 200 });
+    },
+    compare(id, edge) {
+      if (!selectedNode || !graph.hasEdge(edge)) return;
+      selectedEdge = edge; refreshRenderer(); showInfo(id, "info2");
+    },
+    reveal(id) {
+      hiddenTopics.delete(graph.getNodeAttribute(id, "cluster"));
+      if (graph.getNodeAttribute(id, "weak_assignment")) showWeakAssignments = true;
+      updateVisibility();
+    },
+    setTopicVisible(id, visible) {
+      visible ? hiddenTopics.delete(id) : hiddenTopics.add(id);
+      if (!visible && (activeTopic === id ||
+          (selectedNode && graph.getNodeAttribute(selectedNode, "cluster") === id))) resetSelection();
+      updateVisibility(); restoreHighlight();
+    },
+    setWeak(visible) {
+      showWeakAssignments = visible;
+      if (!visible && selectedNode && graph.getNodeAttribute(selectedNode, "weak_assignment")) resetSelection();
+      updateVisibility(); restoreHighlight();
+    },
+    selectTopic(id) {
+      activeTopic = activeTopic === id ? null : id; previewTopic = null;
+      deselectNode(); hidePanels(); restoreHighlight(); scheduleTopicOverlay();
+    },
+    preview(id) {
+      previewTopic = id;
+      id === null ? restoreHighlight()
+        : applyHighlight(new Set(graph.filterNodes((_key, node) => node.cluster === id)));
+      scheduleTopicOverlay();
+    },
+    clearFilters() {
+      hiddenTopics.clear(); showWeakAssignments = true; resetSelection(); updateVisibility();
+    },
+    fit() { renderer.getCamera().animatedReset({ duration: 250 }); },
+    closePanel(box) {
+      if (box === "info") resetSelection();
+      else { document.getElementById("info2").classList.add("hidden"); selectedEdge = null; refreshRenderer(); }
+    },
+  });
+  explorer.setData(data, currentTopics, paperMeta);
+  document.getElementById("saved-view-fields").disabled = false;
+  document.getElementById("saved-view-message").textContent = "Views are saved only when you choose Save current view.";
+  window.SavedViews.create({ library: () => viewerConfig,
+    capture: explorer.captureView, restore: explorer.restoreView });
 }
 function hidePanels() {
   document.getElementById("info").classList.add("hidden");
@@ -286,13 +354,7 @@ function bindRendererEvents() {
   renderer.on("leaveNode", () => tooltip.classList.add("hidden"));
 
   renderer.on("clickNode", ({ node }) => {
-    activeTopic = null;
-    document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
-    selectedNode = node; selectedEdge = null;
-    document.getElementById("info2").classList.add("hidden");
-    applyHighlight(new Set([node, ...graph.neighbors(node)]));
-    showInfo(node, "info");
-    scheduleTopicOverlay();
+    selectPaper(node);
   });
 
   renderer.on("clickEdge", ({ edge }) => {
@@ -313,6 +375,7 @@ function bindRendererEvents() {
 }
 
 function updateVisibility() {
+  overlayGeometry = null;
   graph.forEachNode((id, a) => {
     const hidden = hiddenTopics.has(a.cluster) || (!showWeakAssignments && a.weak_assignment);
     if (a.hidden !== hidden) graph.setNodeAttribute(id, "hidden", hidden);
@@ -327,53 +390,6 @@ function updateVisibility() {
 function updateStatistics() {
   const topicCount = new Set(graph.mapNodes((_id, a) => a.cluster).filter((x) => x !== -1)).size;
   document.getElementById("stats").textContent = `${graph.order} papers · ${topicCount} topics · ${graph.size} links`;
-}
-
-function applyTopicFilter() {
-  const query = document.getElementById("topic-search").value.trim().toLowerCase();
-  document.querySelectorAll("#legend li").forEach((li) => {
-    li.style.display = !query || li.dataset.search.includes(query) ? "flex" : "none";
-  });
-}
-
-function buildLegend(topics) {
-  const ul = document.getElementById("legend"); ul.innerHTML = "";
-  const sortedTopics = [...topics].sort((a, b) => (a.id === -1) - (b.id === -1) || b.paper_count - a.paper_count);
-  sortedTopics.forEach((t) => {
-    const li = document.createElement("li");
-    li.dataset.search = t.label.toLowerCase();
-    if (hiddenTopics.has(t.id)) li.classList.add("topic-hidden");
-    li.innerHTML = `<input type="checkbox" class="vis" ${hiddenTopics.has(t.id) ? "" : "checked"}
-      title="Show or hide this topic on the map" />
-      <span class="swatch" style="background:${topicColor(t.id)}"></span>
-      <span class="name">${escapeHtml(t.label)}</span><span class="count">${t.paper_count}</span>`;
-    const checkbox = li.querySelector(".vis");
-    checkbox.addEventListener("click", (e) => e.stopPropagation());
-    checkbox.addEventListener("change", (e) => {
-      if (e.target.checked) hiddenTopics.delete(t.id); else hiddenTopics.add(t.id);
-      li.classList.toggle("topic-hidden", !e.target.checked);
-      updateVisibility();
-    });
-    li.addEventListener("mouseenter", () => {
-      if (!hiddenTopics.has(t.id)) {
-        previewTopic = t.id; scheduleTopicOverlay();
-        applyHighlight(new Set(graph.filterNodes((_id, a) => a.cluster === t.id)));
-      }
-    });
-    li.addEventListener("mouseleave", () => {
-      previewTopic = null; restoreHighlight(); scheduleTopicOverlay();
-    });
-    li.addEventListener("click", () => {
-      const wasActive = activeTopic === t.id;
-      deselectNode(); hidePanels();
-      document.querySelectorAll("#legend li").forEach((x) => x.classList.remove("active"));
-      activeTopic = wasActive ? null : t.id;
-      if (activeTopic !== null) li.classList.add("active");
-      restoreHighlight(); scheduleTopicOverlay();
-    });
-    ul.appendChild(li);
-  });
-  applyTopicFilter();
 }
 
 function overlayFocusTopic() {
@@ -391,15 +407,19 @@ function topicOverlayDetail() {
 function updateTopicOverlay() {
   topicOverlayFrame = null;
   if (!renderer || !window.SemanticOverlays) return;
-  const nodes = graph.mapNodes((id, attributes) => {
-    const point = renderer.graphToViewport({ x: attributes.x, y: attributes.y });
-    return { id, x: point.x, y: point.y, cluster: attributes.cluster,
-      weak: attributes.weak_assignment, hidden: attributes.hidden };
-  });
+  const project = (point) => renderer.graphToViewport(point);
+  const angle = renderer.getCamera().getState().angle;
+  if (!overlayGeometry || angle !== overlayAngle) {
+    const nodes = graph.mapNodes((id, attributes) => ({ id, x: attributes.x, y: attributes.y,
+      cluster: attributes.cluster, weak: attributes.weak_assignment, hidden: attributes.hidden }));
+    overlayGeometry = window.SemanticOverlays.prepareGeometry(nodes, project);
+    overlayAngle = angle;
+  }
   const topics = currentTopics.map((topic) => ({ ...topic, color: topicColor(topic.id) }));
   window.SemanticOverlays.update({
     canvas: document.getElementById("topic-islands"), labels: topicLabelEntries,
-    topics, nodes, hiddenTopics, focusTopic: overlayFocusTopic(), detailLevel: topicOverlayDetail(),
+    topics, geometry: overlayGeometry, project, hiddenTopics,
+    focusTopic: overlayFocusTopic(), detailLevel: topicOverlayDetail(),
   });
 }
 
@@ -409,6 +429,7 @@ function scheduleTopicOverlay() {
 }
 
 function createTopicLabels(topics) {
+  overlayGeometry = null;
   topicLabelEntries = window.SemanticOverlays.buildLabels(
     document.getElementById("topic-labels"), topics, topicColor,
   );
@@ -419,33 +440,6 @@ function createTopicLabels(topics) {
 }
 
 function bindControls() {
-  document.getElementById("search").addEventListener("input", (e) => {
-    const q = e.target.value.trim().toLowerCase();
-    activeTopic = null; deselectNode(); hidePanels();
-    document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
-    if (!q) {
-      document.getElementById("search-status").textContent = "";
-      clearHighlight(); scheduleTopicOverlay(); return;
-    }
-    const matches = new Set(graph.filterNodes((_id, a) => (a.title || "").toLowerCase().includes(q)));
-    document.getElementById("search-status").textContent = matches.size ? `${matches.size} found` : "No results";
-    matches.size ? applyHighlight(matches) : clearHighlight();
-    scheduleTopicOverlay();
-  });
-  document.getElementById("topic-search").addEventListener("input", applyTopicFilter);
-  document.getElementById("toggle-weak").addEventListener("change", (e) => {
-    showWeakAssignments = e.target.checked; updateVisibility();
-  });
-  document.getElementById("btn-reset").addEventListener("click", () => {
-    resetSelection(); document.getElementById("search").value = "";
-    document.getElementById("search-status").textContent = "";
-    renderer.getCamera().animatedReset({ duration: 250 });
-  });
-  document.querySelectorAll(".panel-close").forEach((btn) => btn.addEventListener("click", () => {
-    if (btn.dataset.box === "info") hidePanels();
-    else { document.getElementById("info2").classList.add("hidden"); selectedEdge = null; }
-    refreshRenderer();
-  }));
   document.getElementById("btn-refresh").addEventListener("click", refreshData);
   document.getElementById("btn-zoom-in").addEventListener("click", () =>
     renderer.getCamera().animatedZoom({ factor: 1.5, duration: 200 }));
@@ -491,28 +485,26 @@ function reconcileGraph(data) {
 }
 
 async function refreshData() {
+  if (refreshInProgress) return;
+  refreshInProgress = true; explorer.refreshBusy(true);
+  explorer.notice("Reading the local map. Zotero is not being synchronized.");
   try {
     const [[data, topics]] = await Promise.all([
       readMapSnapshot(), loadMetadata(), loadViewerConfig(),
     ]);
     currentTopics = topics.topics; generateColors(currentTopics);
     const changes = reconcileGraph(data);
+    window.MapStatus.render(data.status);
     if (selectedNode && !graph.hasNode(selectedNode)) resetSelection();
-    document.getElementById("info2").classList.add("hidden");
-    selectedEdge = null;
-    if (selectedNode && graph.hasNode(selectedNode)) showInfo(selectedNode, "info");
-    if (activeTopic !== null && !currentTopics.some((topic) => topic.id === activeTopic))
-      activeTopic = null;
-    buildLegend(currentTopics); updateStatistics(); updateVisibility(); createTopicLabels(currentTopics);
-    const query = document.getElementById("search").value.trim().toLowerCase();
-    if (query) {
-      const matches = new Set(graph.filterNodes((_id, a) =>
-        (a.title || "").toLowerCase().includes(query)));
-      matches.size ? applyHighlight(matches) : clearHighlight();
-    } else restoreHighlight();
-    alert(`Map refreshed: +${changes.addedNodes}/−${changes.removedNodes} papers, ` +
+    document.getElementById("info2").classList.add("hidden"); selectedEdge = null;
+    explorer.setData(data, currentTopics, paperMeta);
+    if (selectedNode) showInfo(selectedNode, "info");
+    updateStatistics(); updateVisibility(); createTopicLabels(currentTopics); restoreHighlight();
+    explorer.notice(`Local map reloaded: +${changes.addedNodes}/−${changes.removedNodes} papers, ` +
       `+${changes.addedEdges}/−${changes.removedEdges} links.`);
-  } catch (err) { alert(`Refresh failed: ${err.message}`); }
+  } catch (err) {
+    explorer.notice(`Could not reload the local map: ${err.message} Try Reload local map again.`, true);
+  } finally { refreshInProgress = false; explorer.refreshBusy(false); }
 }
 
 async function start() {
@@ -521,7 +513,9 @@ async function start() {
       readMapSnapshot(), loadMetadata(), loadViewerConfig(),
     ]);
     currentTopics = topics.topics; generateColors(currentTopics); graph = buildGraph(data);
-    createRenderer(); bindRendererEvents(); bindControls(); buildLegend(currentTopics);
+    window.MapStatus.render(data.status);
+    createRenderer(); createExplorer(data); bindRendererEvents(); bindControls();
+    window.LibraryControl?.rendererReady();
     updateStatistics(); createTopicLabels(currentTopics);
     requestAnimationFrame(() => {
       renderer.resize(); renderer.getCamera().setState({ x: 0.5, y: 0.5, ratio: 1, angle: 0 });

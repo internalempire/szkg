@@ -18,32 +18,189 @@
         </span>
       </h1>
       <p id="stats" class="muted">Loading...</p>
+      <!-- THESIS: choose independent library and embedding connectors, then approve work.
+           OWN-WORLD: inherit SZKG's dark panels, system type and blue actions.
+           STORY: choose source/service, connect Papers temporarily, inspect preview, approve.
+           FIRST VIEWPORT: a compact disclosure above map status; first-run opens it.
+           FORM: scoped sidebar extension; no replacement visual world or concept seed. -->
+      <details id="library-controls" class="library-controls">
+        <summary>Library setup &amp; sync</summary>
+        <p id="library-summary" class="muted">Connecting to the local service…</p>
+        <details id="library-settings">
+          <summary>Connection settings</summary>
+        <form id="library-form">
+          <fieldset id="library-fields">
+            <legend>Choose your connectors</legend>
+            <label for="library-source">Paper library</label>
+            <select id="library-source"><option value="zotero">Zotero</option><option value="papers">Papers by ReadCube (experimental)</option></select>
+            <fieldset id="zotero-fields">
+            <label for="library-type">Library type</label>
+            <select id="library-type"><option value="user">Personal library</option><option value="group">Group library</option></select>
+            <label for="library-id">Numeric library ID</label>
+            <input id="library-id" inputmode="numeric" pattern="[0-9]+" required autocomplete="off" />
+            <p class="muted">Find your personal ID in <a href="https://www.zotero.org/settings/keys" target="_blank" rel="noreferrer">Zotero API settings</a>. For groups, use the numeric group ID.</p>
+            <label for="zotero-key">Zotero read-only API key</label>
+            <input id="zotero-key" type="password" autocomplete="new-password" spellcheck="false" placeholder="Leave blank to keep saved key" />
+            </fieldset>
+            <fieldset id="papers-fields" hidden disabled>
+              <legend>Papers session</legend>
+              <p class="muted">Unofficial, read-only connector. Email/password login only; SSO and MFA are not supported. Your password is not saved. Reconnect after restarting SZKG.</p>
+              <label for="papers-email">Papers email</label>
+              <input id="papers-email" type="email" autocomplete="username" required />
+              <label for="papers-password">Papers password — this connection only</label>
+              <input id="papers-password" type="password" autocomplete="off" />
+              <button id="papers-connect" type="button">Connect &amp; list collections</button>
+              <button id="papers-disconnect" type="button" hidden>Disconnect Papers session</button>
+              <p id="papers-feedback" role="status" aria-live="polite" aria-atomic="true"></p>
+              <p id="papers-session" class="muted" role="status"></p>
+              <label for="papers-collection">Collection to map</label>
+              <select id="papers-collection" required><option value="">Connect to choose a collection</option></select>
+              <p class="muted">Only the selected collection is mapped. Preview verifies every page before applying changes; a failed read never becomes an empty library.</p>
+            </fieldset>
+            <label for="embedding-service">Embedding service</label>
+            <select id="embedding-service"><option value="openai">OpenAI directly</option><option value="openrouter">OpenRouter</option></select>
+            <p class="muted">Fixed model: text-embedding-3-small · 1,536 dimensions · title + abstract. Separate connector caches preserve your original map; the first build of a new profile may incur embedding costs.</p>
+            <div id="openai-fields">
+            <label for="openai-key">OpenAI API key</label>
+            <input id="openai-key" type="password" autocomplete="new-password" spellcheck="false" placeholder="Needed for new or edited texts" />
+            </div>
+            <div id="openrouter-fields" hidden>
+              <label for="openrouter-key">OpenRouter API key</label>
+              <input id="openrouter-key" type="password" autocomplete="new-password" spellcheck="false" placeholder="Leave blank to keep saved key" />
+              <p class="muted">Model ID: openai/text-embedding-3-small. Approved texts pass through OpenRouter to the model provider; no fallback to another model.</p>
+            </div>
+            <p class="muted">Keys are saved only in this project's .env file, not encrypted or sent back to the page. Never share that file. Blank key fields keep saved keys.</p>
+            <button type="submit">Save local settings</button>
+          </fieldset>
+        </form>
+        </details>
+        <p id="library-unsaved" class="muted" hidden>Connection settings have unsaved changes. Save them before preparing a preview.</p>
+        <div class="library-actions">
+          <button id="library-sync" disabled>Preview sync</button>
+          <button id="library-rebuild" disabled>Preview rebuild</button>
+        </div>
+        <p id="library-privacy" class="muted">Preview reads the selected library, without changing it. Embedding requests require confirmation. Rebuild reorganizes topics and positions; sync keeps existing positions when a complete map is available.</p>
+        <p id="library-job" role="status" aria-live="polite" tabindex="-1"></p>
+        <section id="library-preview" hidden aria-label="Confirm library changes">
+          <h3 tabindex="-1" id="library-preview-title">Review before applying</h3>
+          <dl id="library-estimate"></dl>
+          <p class="muted">Cost uses the local price table, not a live quote or spending cap. API retries and provider billing may differ. Cancel if you do not want to send these texts.</p>
+          <p id="library-rebuild-warning"></p>
+          <p id="library-key-warning" hidden>An embedding API key is needed. Cancel this preview, add the selected service's key, then preview again.</p>
+          <button id="library-confirm">Confirm and apply</button>
+        </section>
+        <button id="library-cancel" hidden>Cancel preview</button>
+        <button id="library-open" hidden>Open updated map</button>
+        <button id="library-reconnect" hidden>Reconnect local service</button>
+        <p id="library-feedback" role="status" aria-live="polite"></p>
+        <p class="muted">Previews expire after 30 minutes. Confirmed jobs continue if you close this browser tab; keep the SZKG launcher window open until they finish.</p>
+        <p id="library-health" class="muted"></p>
+      </details>
+      <section id="map-status" class="map-status" aria-label="Map update status">
+        <p class="status-headline" role="status" aria-live="polite">Checking map status...</p>
+        <details>
+          <summary>Update details</summary>
+          <p class="status-explanation"></p>
+          <dl>
+            <dt>Last library sync</dt><dd class="last-sync">Not recorded</dd>
+            <dt>Last full rebuild</dt><dd class="last-rebuild">Not recorded</dd>
+          </dl>
+          <p>To reorganize the map, open Library setup &amp; sync and choose Preview rebuild. Alternatively, run <code>python app.py refresh</code>, then reload the local map. New or edited text may incur embedding costs.</p>
+        </details>
+      </section>
       <div class="search-group">
-        <input id="search" type="search" placeholder="Search paper titles..." autocomplete="off" />
-        <span id="search-status" aria-live="polite"></span>
+        <label for="search">Find a paper</label>
+        <input id="search" type="search" placeholder="Search paper titles..." autocomplete="off" aria-describedby="search-status" aria-controls="paper-results" />
+        <p id="search-status" aria-live="polite"></p>
+        <div class="search-actions">
+          <button id="btn-browse" aria-expanded="false" aria-controls="search-results">Browse all papers</button>
+          <button id="btn-clear-search" hidden>Clear search</button>
+        </div>
       </div>
+      <!-- THESIS: review incomplete metadata within the existing paper list.
+           OWN-WORLD: inherited dark sidebar, text reasons, native button/link controls.
+           STORY: list flagged records, inspect them, correct them in Zotero.
+           FIRST VIEWPORT: one toggle below title search, details only when active.
+           FORM: local Operate extension, no new visual world. -->
+      <button id="btn-incomplete" aria-pressed="false" aria-controls="search-results quality-help" disabled>Review incomplete papers</button>
+      <div id="quality-help" class="quality-help" hidden>
+        <p id="quality-counts"></p>
+        <p>Checks loaded map metadata, not the live source library. Unavailable local abstracts are not assumed missing at the source. Filename-like titles are suggestions to review, not confirmed errors.</p>
+        <details>
+          <summary>How to update this list</summary>
+          <p>Fix metadata in your reference manager and let it sync, then choose Preview sync in Library setup &amp; sync. New or edited titles/abstracts may incur embedding costs after confirmation. Finally, Reload local map. Papers not yet on this map are not listed here.</p>
+        </details>
+      </div>
+      <section id="search-results" class="hidden" aria-label="Paper results">
+        <ul id="paper-results" class="paper-results"></ul>
+        <div id="results-pagination" class="pagination hidden">
+          <button id="results-prev" aria-label="Previous results page">Previous</button>
+          <span id="results-page"></span>
+          <button id="results-next" aria-label="Next results page">Next</button>
+        </div>
+      </section>
       <div class="controls">
         <label class="switch">
           <input type="checkbox" id="toggle-weak" checked />
           Show weak assignments
         </label>
-        <button id="btn-refresh" title="Reload data and insert only new papers">Refresh data</button>
-        <button id="btn-reset" title="Return to the complete view">Reset view</button>
+        <p id="filter-summary" class="muted" aria-live="polite">All topics and assignments visible</p>
+        <div class="view-actions">
+          <button id="btn-clear-filters" title="Clear searches, selections and all visibility filters">Clear filters</button>
+          <button id="btn-reset" title="Fit the map without changing filters or selection">Fit map</button>
+        </div>
+        <button id="btn-refresh" title="Reload generated local files; does not contact your library service">Reload local map</button>
+        <p id="viewer-message" class="muted" role="status" aria-live="polite"></p>
       </div>
+      <!-- THESIS: explicit exploration bookmarks, not an automatic resume.
+           OWN-WORLD: inherit compact dark sidebar controls and system type.
+           STORY: name the current view, return to it, or delete with undo.
+           FIRST VIEWPORT: collapsed disclosure after map controls.
+           FORM: a local Operate-mode extension; no new visual identity. -->
+      <details id="saved-views" class="saved-views">
+        <summary>Saved views</summary>
+        <p class="muted">Save filters, the selected paper and the camera. Only in this browser and local address; not a library backup. Names and searches remain in browser storage.</p>
+        <fieldset id="saved-view-fields" disabled>
+          <form id="saved-view-form">
+            <label for="saved-view-name">Name this view</label>
+            <input id="saved-view-name" maxlength="80" required autocomplete="off" placeholder="e.g. Papers to revisit" />
+            <button type="submit">Save current view</button>
+          </form>
+          <label for="saved-view-select">Return to a view</label>
+          <select id="saved-view-select"><option value="">No saved views yet</option></select>
+          <div class="view-actions">
+            <button id="saved-view-restore" disabled>Open view</button>
+            <button id="saved-view-delete" disabled>Delete view</button>
+          </div>
+          <button id="saved-view-undo" hidden>Undo deletion</button>
+        </fieldset>
+        <p id="saved-view-message" role="status" aria-live="polite">Available after a map has loaded.</p>
+      </details>
       <details class="map-key">
         <summary>Map key</summary>
         <span><i class="key-node strong"></i>Core paper</span>
         <span><i class="key-node weak"></i>Weak assignment</span>
         <span><i class="key-line"></i>Semantic link</span>
+        <p>Links express similarity of titles and abstracts, not citations. Distances are approximate. Weak assignment means uncertain topic membership, not poor research quality.</p>
+        <p>Select a paper, then choose a related paper to compare. Search: ↓ to results, Enter to open. Esc closes a detail panel.</p>
       </details>
       <div class="topics-heading">
         <h2>Topics</h2>
+        <label for="topic-search" class="sr-only">Filter the topic list</label>
         <input id="topic-search" type="search" placeholder="Filter topics..." autocomplete="off" />
       </div>
+      <p id="topic-empty" class="muted" role="status" hidden>No matching topics. Clear the topic filter to see all topics.</p>
+      <details id="topic-continuity" class="map-status" hidden>
+        <summary>Topic continuity</summary>
+        <p id="topic-continuity-summary"></p>
+        <p>Identity follows shared core papers, not keyword similarity. Clear continuations keep their color. Splits, merges and ambiguous changes get a new identity; weak assignments do not decide the match.</p>
+      </details>
       <ul id="legend"></ul>
     </aside>
 
     <main id="canvas-wrap">
+      <button id="sidebar-toggle" aria-expanded="true" aria-controls="sidebar">Hide search &amp; filters</button>
+      <p id="view-restore-message" class="hidden" role="status" aria-live="polite"></p>
       <canvas id="topic-islands" aria-hidden="true"></canvas>
       <div id="cy"></div>
       <div id="topic-labels"></div>
@@ -54,12 +211,12 @@
         <button id="btn-zoom-fit" title="Fit the complete map">&#10530;</button>
       </div>
       <div id="panels">
-        <div id="info2" class="info-panel hidden">
-          <button class="panel-close" data-box="info2" aria-label="Close">&times;</button>
+        <div id="info2" class="info-panel hidden" role="region" aria-label="Compared paper">
+          <button class="panel-close" data-box="info2" aria-label="Close compared paper">&times;</button>
           <div class="panel-body"></div>
         </div>
-        <div id="info" class="info-panel hidden">
-          <button class="panel-close" data-box="info" aria-label="Close">&times;</button>
+        <div id="info" class="info-panel hidden" role="region" aria-label="Selected paper">
+          <button class="panel-close" data-box="info" aria-label="Close selected paper">&times;</button>
           <div class="panel-body"></div>
         </div>
       </div>
@@ -67,6 +224,10 @@
     </main>
   </div>
   <script src="semantic-overlays.js"></script>
+  <script src="map-status.js"></script>
+  <script src="explorer.js"></script>
+  <script src="saved-views.js"></script>
+  <script src="library.js"></script>
   <script src="loader.js"></script>
 </body>
 </html>

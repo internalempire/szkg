@@ -16,9 +16,11 @@ let showWeakAssignments = true;
 let previewTopic = null;
 let topicLabelEntries = [];
 let topicOverlayFrame = null;
+let overlayGeometry = null;
 let isMoving = false;
 let movementTimer = null;
 let viewerConfig = { library_type: "user", library_id: "" };
+let paperMeta = {}, explorer = null, refreshInProgress = false;
 const NODE_PX = 12;
 const WEAK_NODE_PX = 9;
 const SELECTED_NODE_PX = 20;
@@ -27,7 +29,8 @@ const SELECTED_EDGE_PX = 3.5;
 
 async function readJson(path) {
   const separator = path.includes("?") ? "&" : "?";
-  const response = await fetch(`${path}${separator}t=${Date.now()}`, { cache: "no-store" });
+  const profile = window.LibraryControl?.profileId;
+  const response = await fetch(`${path}${separator}t=${Date.now()}${profile ? `&profile=${encodeURIComponent(profile)}` : ""}`, { cache: "no-store" });
   if (!response.ok) throw new Error(`Could not read ${path}`);
   return response.json();
 }
@@ -44,9 +47,14 @@ async function readMapSnapshot() {
 }
 async function loadViewerConfig() {
   try { viewerConfig = await readJson(VIEWER_CONFIG_URL); }
-  catch { viewerConfig = { library_type: "user", library_id: "" }; }
+  catch { viewerConfig = window.LibraryControl?.viewerIdentity || { source: "unknown" }; }
+}
+async function loadMetadata() {
+  try { paperMeta = await readJson("../data/metadata.json"); }
+  catch { paperMeta = {}; }
 }
 function zoteroSelectUri(id) {
+  if (["papers", "unknown"].includes(viewerConfig.source)) return null;
   const key = encodeURIComponent(id);
   if (viewerConfig.library_type === "group" && viewerConfig.library_id)
     return `zotero://select/groups/${encodeURIComponent(viewerConfig.library_id)}/items/${key}`;
@@ -64,7 +72,8 @@ function hslToRgb(h, s, l) {
 function generateColors(topics) {
   const classifiedTopics = topics.filter((t) => t.id !== -1).sort((a, b) => b.paper_count - a.paper_count);
   classifiedTopics.forEach((t, i) => {
-    const hue = (i * 137.5) % 360;
+    const colorIndex = Number.isInteger(t.color_index) && t.color_index >= 0 ? t.color_index : i;
+    const hue = (colorIndex * 137.5) % 360;
     const rgb = hslToRgb(hue, 0.72, 0.58);
     topicRgbColors.set(t.id, rgb);
     topicColors.set(t.id, `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`);
@@ -294,15 +303,18 @@ function topicOverlayDetail() {
 function updateTopicOverlay() {
   topicOverlayFrame = null;
   if (!cy || !window.SemanticOverlays) return;
-  const nodes = cy.nodes().map((node) => {
-    const point = node.renderedPosition();
-    return { id: node.id(), x: point.x, y: point.y, cluster: node.data("cluster"),
-      weak: node.data("weak_assignment"), hidden: node.hasClass("graph-hidden") };
-  });
+  const zoom = cy.zoom(), pan = cy.pan();
+  const project = (point) => ({ x: point.x * zoom + pan.x, y: point.y * zoom + pan.y });
+  if (!overlayGeometry) {
+    const nodes = cy.nodes().map((node) => ({ id: node.id(), ...node.position(),
+      cluster: node.data("cluster"), weak: node.data("weak_assignment"), hidden: node.hasClass("graph-hidden") }));
+    overlayGeometry = window.SemanticOverlays.prepareGeometry(nodes, project);
+  }
   const topics = currentTopics.map((topic) => ({ ...topic, color: topicColor(topic.id) }));
   window.SemanticOverlays.update({
     canvas: document.getElementById("topic-islands"), labels: topicLabelEntries,
-    topics, nodes, hiddenTopics, focusTopic: overlayFocusTopic(), detailLevel: topicOverlayDetail(),
+    topics, geometry: overlayGeometry, project, hiddenTopics,
+    focusTopic: overlayFocusTopic(), detailLevel: topicOverlayDetail(),
   });
 }
 
@@ -312,6 +324,7 @@ function scheduleTopicOverlay() {
 }
 
 function createTopicLabels(topics) {
+  overlayGeometry = null;
   topicLabelEntries = window.SemanticOverlays.buildLabels(
     document.getElementById("topic-labels"), topics, topicColor,
   );
@@ -327,6 +340,7 @@ function zoomBy(factor) {
   applyZoomScale(); // Update immediately instead of waiting for the next frame.
 }
 function updateVisibility() {
+  overlayGeometry = null;
   cy.batch(() => {
     cy.elements().removeClass("graph-hidden");
     const toHide = cy.nodes().filter(
@@ -361,33 +375,102 @@ function restoreHighlight() {
     if (n.nonempty()) applyHighlight(n.closedNeighborhood().nodes());
   } else if (activeTopic !== null) {
     applyHighlight(cy.nodes().filter((x) => x.data("cluster") === activeTopic));
+  } else if (explorer?.hasSearch()) {
+    const matches = new Set(explorer.matchingIds());
+    applyHighlight(cy.nodes().filter((node) => matches.has(node.id())));
   }
 }
 function resetSelection() {
-  activeTopic = null;
+  activeTopic = null; previewTopic = null;
   deselectNode();
   clearHighlight();
   hidePanels();
   document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
-  scheduleTopicOverlay();
+  restoreHighlight(); scheduleTopicOverlay(); explorer?.update();
 }
-function showInfo(node, idBox) {
-  const box = document.getElementById(idBox);
-  const body = box.querySelector(".panel-body");
-  const topic = node.data("cluster");
-  const key = node.id();
-  const weakAssignment = node.data("weak_assignment");
+function showInfo(node, boxId) { explorer.showInfo(node.id(), boxId); }
 
-  body.innerHTML = `
-    <p class="paper-title">${escape(node.data("title"))}</p>
-    <p class="detail-row">
-      <span class="topic-chip" style="background:${topicColor(topic)};color:${topicInk(topic)}">${escape(topicLabels.get(topic) || "—")}</span>
-      ${weakAssignment ? '<span class="weak-badge">weak assignment</span>' : ""}
-    </p>
-    <p class="detail-row">Links: ${node.degree()}</p>
-    <p class="detail-row"><a href="${zoteroSelectUri(key)}">Open in Zotero</a></p>
-  `;
-  box.classList.remove("hidden");
+function selectPaper(id) {
+  const node = cy.getElementById(id);
+  if (node.empty()) return;
+  activeTopic = null; previewTopic = null; deselectNode();
+  node.addClass("selected"); selectedNode = id; resizeNode(node);
+  cy.edges().removeClass("edge-selected");
+  document.getElementById("info2").classList.add("hidden");
+  clearHighlight(); applyHighlight(node.closedNeighborhood().nodes());
+  showInfo(node, "info"); scheduleTopicOverlay(); explorer.update();
+}
+
+function createExplorer(data) {
+  explorer = window.PaperExplorer.create({
+    state: () => ({ hiddenTopics, showWeakAssignments, activeTopic, selectedNode }),
+    renderer: "cytoscape",
+    select: selectPaper,
+    camera: () => ({ zoom: cy.zoom(), ...cy.pan() }),
+    restoreCamera(camera) { cy.stop(); cy.viewport({ zoom: camera.zoom, pan: { x: camera.x, y: camera.y } }); applyZoomScale(); },
+    restoreFilters(state) {
+      hiddenTopics = new Set(state.hiddenTopics); showWeakAssignments = state.showWeakAssignments;
+      activeTopic = state.activeTopic; previewTopic = null; updateVisibility(); restoreHighlight();
+    },
+    color: topicColor, ink: topicInk, zoteroUri: zoteroSelectUri,
+    resize() { cy.resize(); scheduleTopicOverlay(); },
+    search(ids) {
+      activeTopic = null; previewTopic = null; deselectNode(); hidePanels(); clearHighlight();
+      if (ids !== null) {
+        const matches = new Set(ids);
+        applyHighlight(cy.nodes().filter((node) => matches.has(node.id())));
+      }
+      scheduleTopicOverlay();
+    },
+    open(id) {
+      selectPaper(id);
+      cy.center(cy.getElementById(id)); applyZoomScale();
+    },
+    compare(id, edgeId) {
+      const edge = cy.getElementById(edgeId);
+      if (!selectedNode || edge.empty()) return;
+      cy.edges().removeClass("edge-selected"); edge.addClass("edge-selected");
+      resizeHighlightedEdges(); showInfo(cy.getElementById(id), "info2");
+    },
+    reveal(id) {
+      const node = cy.getElementById(id);
+      hiddenTopics.delete(node.data("cluster"));
+      if (node.data("weak_assignment")) showWeakAssignments = true;
+      updateVisibility();
+    },
+    setTopicVisible(id, visible) {
+      visible ? hiddenTopics.delete(id) : hiddenTopics.add(id);
+      if (!visible && (activeTopic === id ||
+          (selectedNode && cy.getElementById(selectedNode).data("cluster") === id))) resetSelection();
+      updateVisibility(); restoreHighlight();
+    },
+    setWeak(visible) {
+      showWeakAssignments = visible;
+      if (!visible && selectedNode && cy.getElementById(selectedNode).data("weak_assignment")) resetSelection();
+      updateVisibility(); restoreHighlight();
+    },
+    selectTopic(id) {
+      activeTopic = activeTopic === id ? null : id; previewTopic = null;
+      deselectNode(); hidePanels(); restoreHighlight(); scheduleTopicOverlay();
+    },
+    preview(id) {
+      previewTopic = id; clearHighlight();
+      if (id === null) restoreHighlight();
+      else applyHighlight(cy.nodes().filter((node) => node.data("cluster") === id));
+      scheduleTopicOverlay();
+    },
+    clearFilters() { hiddenTopics.clear(); showWeakAssignments = true; resetSelection(); updateVisibility(); },
+    fit() { cy.fit(undefined, 30); applyZoomScale(); },
+    closePanel(box) {
+      if (box === "info") resetSelection();
+      else { document.getElementById("info2").classList.add("hidden"); cy.edges().removeClass("edge-selected"); resizeHighlightedEdges(); }
+    },
+  });
+  explorer.setData(data, currentTopics, paperMeta);
+  document.getElementById("saved-view-fields").disabled = false;
+  document.getElementById("saved-view-message").textContent = "Views are saved only when you choose Save current view.";
+  window.SavedViews.create({ library: () => viewerConfig,
+    capture: explorer.captureView, restore: explorer.restoreView });
 }
 function hidePanels() {
   document.getElementById("info").classList.add("hidden");
@@ -396,6 +479,7 @@ function hidePanels() {
 }
 
 function bindGraphEvents() {
+  cy.on("position data add remove", "node", () => { overlayGeometry = null; scheduleTopicOverlay(); });
   const tooltip = document.getElementById("tooltip");
   cy.on("mouseover", "node", (ev) => {
     tooltip.textContent = ev.target.data("title");
@@ -408,20 +492,7 @@ function bindGraphEvents() {
   });
   cy.on("mouseout", "node", () => tooltip.classList.add("hidden"));
   cy.on("tap", "node", (ev) => {
-    const node = ev.target;
-    activeTopic = null;
-    document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
-
-    deselectNode();
-    node.addClass("selected");
-    selectedNode = node.id();
-    resizeNode(node); // enlarge ONLY the selected node (fast path)
-    cy.edges().removeClass("edge-selected");
-    document.getElementById("info2").classList.add("hidden");
-    clearHighlight();
-    applyHighlight(node.closedNeighborhood().nodes());
-    showInfo(node, "info");
-    scheduleTopicOverlay();
+    selectPaper(ev.target.id());
   });
   cy.on("tap", "edge", (ev) => {
     if (!selectedNode) return;
@@ -465,12 +536,6 @@ function bindGraphEvents() {
   });
 }
 
-function escape(s) {
-  const d = document.createElement("div");
-  d.textContent = s || "";
-  return d.innerHTML;
-}
-
 function updateStatistics() {
   const nodeCount = cy.nodes().length;
   const edgeCount = cy.edges().length;
@@ -479,150 +544,38 @@ function updateStatistics() {
     `${nodeCount} papers · ${topicCount} topics · ${edgeCount} links`;
 }
 
-function applyTopicFilter() {
-  const query = document.getElementById("topic-search").value.trim().toLowerCase();
-  document.querySelectorAll("#legend li").forEach((li) => {
-    li.style.display = !query || li.dataset.search.includes(query) ? "flex" : "none";
-  });
-}
-
-function buildLegend(topics) {
-  const ul = document.getElementById("legend");
-  ul.innerHTML = "";
-  const sortedTopics = [...topics].sort((a, b) => (a.id === -1) - (b.id === -1) || b.paper_count - a.paper_count);
-  for (const t of sortedTopics) {
-    const li = document.createElement("li");
-    li.dataset.search = t.label.toLowerCase();
-    if (hiddenTopics.has(t.id)) li.classList.add("topic-hidden");
-    li.innerHTML = `
-      <input type="checkbox" class="vis" ${hiddenTopics.has(t.id) ? "" : "checked"}
-             title="Show or hide this topic on the map" />
-      <span class="swatch" style="background:${topicColor(t.id)}"></span>
-      <span class="name">${escape(t.label)}</span>
-      <span class="count">${t.paper_count}</span>`;
-    const checkbox = li.querySelector(".vis");
-    checkbox.addEventListener("click", (e) => e.stopPropagation());
-    checkbox.addEventListener("change", (e) => {
-      if (e.target.checked) hiddenTopics.delete(t.id);
-      else hiddenTopics.add(t.id);
-      li.classList.toggle("topic-hidden", !e.target.checked);
-      updateVisibility();
-    });
-    li.addEventListener("mouseenter", () => {
-      if (hiddenTopics.has(t.id)) return;
-      previewTopic = t.id; scheduleTopicOverlay();
-      clearHighlight();
-      applyHighlight(cy.nodes().filter((n) => n.data("cluster") === t.id));
-    });
-    li.addEventListener("mouseleave", () => {
-      previewTopic = null; restoreHighlight(); scheduleTopicOverlay();
-    });
-    li.addEventListener("click", () => {
-      const wasActive = activeTopic === t.id;
-      deselectNode();
-      document.querySelectorAll("#legend li").forEach((x) => x.classList.remove("active"));
-      hidePanels();
-
-      activeTopic = wasActive ? null : t.id;
-      if (activeTopic !== null) li.classList.add("active");
-      restoreHighlight(); scheduleTopicOverlay();
-    });
-    ul.appendChild(li);
-  }
-  applyTopicFilter();
-}
-
 function bindControls() {
-  document.getElementById("search").addEventListener("input", (e) => {
-    const q = e.target.value.trim().toLowerCase();
-    activeTopic = null;
-    deselectNode();
-    document.querySelectorAll("#legend li").forEach((li) => li.classList.remove("active"));
-    hidePanels();
-
-    if (!q) {
-      document.getElementById("search-status").textContent = "";
-      clearHighlight();
-      scheduleTopicOverlay();
-      return;
-    }
-    const matches = cy.nodes().filter((n) => (n.data("title") || "").toLowerCase().includes(q));
-    document.getElementById("search-status").textContent = matches.length ? `${matches.length} found` : "No results";
-    clearHighlight();
-    if (matches.length) applyHighlight(matches);
-    scheduleTopicOverlay();
-  });
-  document.getElementById("topic-search").addEventListener("input", applyTopicFilter);
-  document.getElementById("toggle-weak").addEventListener("change", (e) => {
-    showWeakAssignments = e.target.checked;
-    updateVisibility();
-  });
-
-  document.getElementById("btn-reset").addEventListener("click", () => {
-    resetSelection();
-    document.getElementById("search").value = "";
-    document.getElementById("search-status").textContent = "";
-    cy.fit(undefined, 30);
-    applyZoomScale();
-  });
-  document.querySelectorAll(".panel-close").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (btn.getAttribute("data-box") === "info") {
-        hidePanels();
-      } else {
-        document.getElementById("info2").classList.add("hidden");
-        cy.edges().removeClass("edge-selected");
-      }
-    });
-  });
-
   document.getElementById("btn-refresh").addEventListener("click", refreshData);
   document.getElementById("btn-zoom-in").addEventListener("click", () => zoomBy(1.5));
   document.getElementById("btn-zoom-out").addEventListener("click", () => zoomBy(1 / 1.5));
   document.getElementById("btn-zoom-fit").addEventListener("click", () => {
-    cy.fit(undefined, 30);
-    applyZoomScale();
+    cy.fit(undefined, 30); applyZoomScale();
   });
 }
 
 async function refreshData() {
+  if (refreshInProgress) return;
+  refreshInProgress = true; explorer.refreshBusy(true);
+  explorer.notice("Reading the local map. Zotero is not being synchronized.");
   try {
     const [[graphData, topics]] = await Promise.all([
-      readMapSnapshot(), loadViewerConfig(),
+      readMapSnapshot(), loadViewerConfig(), loadMetadata(),
     ]);
-    topicColors = new Map();
-    topicRgbColors = new Map();
-    topicLabels = new Map();
-    currentTopics = topics.topics;
-    generateColors(topics.topics);
+    topicColors = new Map(); topicRgbColors = new Map(); topicLabels = new Map();
+    currentTopics = topics.topics; generateColors(currentTopics);
     const changes = reconcileGraphData(graphData);
-    if (selectedNode && cy.getElementById(selectedNode).empty()) {
-      selectedNode = null;
-      hidePanels();
-    }
-    document.getElementById("info2").classList.add("hidden");
-    cy.edges().removeClass("edge-selected");
-    if (selectedNode) showInfo(cy.getElementById(selectedNode), "info");
-    if (activeTopic !== null && !topics.topics.some((topic) => topic.id === activeTopic))
-      activeTopic = null;
-    buildLegend(topics.topics);
-    updateStatistics();
-    updateVisibility();
+    window.MapStatus.render(graphData.status);
+    if (selectedNode && cy.getElementById(selectedNode).empty()) { selectedNode = null; hidePanels(); }
+    document.getElementById("info2").classList.add("hidden"); cy.edges().removeClass("edge-selected");
+    explorer.setData(graphData, currentTopics, paperMeta);
     calculateDegrees();
-    applyZoomScale();
-    createTopicLabels(topics.topics);
-    const query = document.getElementById("search").value.trim().toLowerCase();
-    if (query) {
-      const matches = cy.nodes().filter((n) =>
-        (n.data("title") || "").toLowerCase().includes(query));
-      clearHighlight();
-      if (matches.length) applyHighlight(matches);
-    } else restoreHighlight();
-    alert(`Map refreshed: +${changes.addedNodes}/−${changes.removedNodes} papers, ` +
+    if (selectedNode) showInfo(cy.getElementById(selectedNode), "info");
+    updateStatistics(); updateVisibility(); applyZoomScale(); createTopicLabels(currentTopics); restoreHighlight();
+    explorer.notice(`Local map reloaded: +${changes.addedNodes}/−${changes.removedNodes} papers, ` +
       `+${changes.addedEdges}/−${changes.removedEdges} links.`);
   } catch (err) {
-    alert(`Refresh failed: ${err.message}`);
-  }
+    explorer.notice(`Could not reload the local map: ${err.message} Try Reload local map again.`, true);
+  } finally { refreshInProgress = false; explorer.refreshBusy(false); }
 }
 
 function reconcileGraphData(graphData) {
@@ -665,10 +618,12 @@ function reconcileGraphData(graphData) {
 async function start() {
   try {
     const [[graphData, topics]] = await Promise.all([
-      readMapSnapshot(), loadViewerConfig(),
+      readMapSnapshot(), loadViewerConfig(), loadMetadata(),
     ]);
     currentTopics = topics.topics;
     generateColors(currentTopics);
+
+    window.MapStatus.render(graphData.status);
 
     cy = cytoscape({
       container: document.getElementById("cy"),
@@ -682,9 +637,10 @@ async function start() {
     });
 
     calculateDegrees();
+    createExplorer(graphData);
+    window.LibraryControl?.rendererReady();
     bindGraphEvents();
     bindControls();
-    buildLegend(topics.topics);
     updateStatistics();
     applyLayout();
     createTopicLabels(topics.topics);

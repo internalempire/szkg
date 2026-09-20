@@ -66,7 +66,9 @@ def calculate_positions(
     paper_count, dimensions = vectors.shape
     if paper_count == 0:
         return np.empty((0, 2), dtype=float)
-    if paper_count < 5:
+    if paper_count == 1:
+        positions = np.zeros((1, 2))
+    elif paper_count < 5:
         components = min(2, paper_count, dimensions)
         base = PCA(n_components=components, random_state=0).fit_transform(vectors)
         positions = np.zeros((paper_count, 2))
@@ -74,7 +76,8 @@ def calculate_positions(
     else:
         reduced_dimensions = min(50, paper_count - 1, dimensions)
         reduced = PCA(n_components=reduced_dimensions, random_state=0).fit_transform(vectors)
-        perplexity = min(_TSNE_MAX_PERPLEXITY, max(5, (paper_count - 1) // 3))
+        # t-SNE requires perplexity strictly below the number of papers.
+        perplexity = min(_TSNE_MAX_PERPLEXITY, paper_count - 1, max(5, (paper_count - 1) // 3))
         positions = TSNE(
             n_components=2,
             random_state=0,

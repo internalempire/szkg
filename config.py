@@ -8,8 +8,20 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
+
+ENV_FILE = Path(__file__).parent / ".env"
+SETTING_NAMES = ("ZOTERO_LIBRARY_ID", "ZOTERO_LIBRARY_TYPE", "ZOTERO_API_KEY", "OPENAI_API_KEY",
+                 "LIBRARY_SOURCE", "EMBEDDING_SERVICE", "OPENROUTER_API_KEY",
+                 "PAPERS_EMAIL", "PAPERS_COLLECTION_ID")
+
+
+def read_settings(path: Path | None = None) -> dict[str, str]:
+    """Read fresh values without leaking file settings into process environment."""
+    values = dotenv_values(path or ENV_FILE, interpolate=False)
+    return {name: str(os.environ.get(name, values.get(name) or "")).strip() for name in SETTING_NAMES}
 
 
 @dataclass
@@ -23,10 +35,10 @@ class ZoteroConfig:
 
 def load_zotero_config() -> ZoteroConfig:
     """Return a validated Zotero configuration or stop with clear guidance."""
-    load_dotenv()
-    library_id = os.getenv("ZOTERO_LIBRARY_ID", "").strip()
-    library_type = os.getenv("ZOTERO_LIBRARY_TYPE", "user").strip() or "user"
-    api_key = os.getenv("ZOTERO_API_KEY", "").strip()
+    values = read_settings()
+    library_id = values["ZOTERO_LIBRARY_ID"]
+    library_type = values["ZOTERO_LIBRARY_TYPE"] or "user"
+    api_key = values["ZOTERO_API_KEY"]
 
     problems: list[str] = []
     if not library_id:
@@ -55,8 +67,7 @@ def load_zotero_config() -> ZoteroConfig:
 
 def load_openai_api_key() -> str:
     """Return the OpenAI API key without coupling it to Zotero settings."""
-    load_dotenv()
-    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    api_key = read_settings()["OPENAI_API_KEY"]
     if not api_key:
         raise SystemExit(
             "OPENAI_API_KEY is missing from .env.\n"

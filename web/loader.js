@@ -24,5 +24,8 @@
     };
     document.body.appendChild(script);
   }
-  load(0);
+  // First run can configure and build a map before any graph files exist.
+  Promise.resolve(window.LibraryControl?.ready ?? true).then((hasMap) => {
+    if (hasMap) load(0);
+  });
 })();

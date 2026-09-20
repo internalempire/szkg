@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 from json_io import write_json_atomically
+from profiles import profile_path
 
 
 PROJECT_ROOT = Path(__file__).parent
@@ -33,9 +34,10 @@ def _translate_fallback_label(label: str) -> str:
 
 
 def _migrate_graph() -> bool:
-    if not GRAPH_FILE.exists():
+    path = profile_path(GRAPH_FILE)
+    if not path.exists():
         return False
-    data = json.loads(GRAPH_FILE.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8"))
     changed = False
     for node in data.get("nodes", []):
         if "weak_assignment" not in node and "debole" in node:
@@ -47,14 +49,15 @@ def _migrate_graph() -> bool:
                 node["cluster_label"] = translated
                 changed = True
     if changed:
-        write_json_atomically(GRAPH_FILE, data)
+        write_json_atomically(path, data)
     return changed
 
 
 def _migrate_clusters() -> bool:
-    if not CLUSTERS_FILE.exists():
+    path = profile_path(CLUSTERS_FILE)
+    if not path.exists():
         return False
-    data = json.loads(CLUSTERS_FILE.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8"))
     changed = False
 
     if "topics" not in data and "temi" in data:
@@ -81,18 +84,19 @@ def _migrate_clusters() -> bool:
                 changed = True
 
     if changed:
-        write_json_atomically(CLUSTERS_FILE, data)
+        write_json_atomically(path, data)
     return changed
 
 
 def _migrate_state() -> bool:
-    if not STATE_FILE.exists():
+    path = profile_path(STATE_FILE)
+    if not path.exists():
         return False
-    data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8"))
     if "last_zotero_version" in data or "ultima_versione" not in data:
         return False
     data["last_zotero_version"] = data.pop("ultima_versione")
-    write_json_atomically(STATE_FILE, data)
+    write_json_atomically(path, data)
     return True
 
 

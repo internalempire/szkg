@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import math
 
 from openai import OpenAI
 
@@ -51,9 +52,11 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         api_key: str,
         model: str = DEFAULT_EMBEDDING_MODEL,
         dimensions: int = DEFAULT_EMBEDDING_DIMENSIONS,
+        *, base_url: str | None = None,
     ) -> None:
         # Automatic retries handle temporary rate limits and service overloads.
-        self._client = OpenAI(api_key=api_key, max_retries=6)
+        options = {"base_url": base_url} if base_url else {}
+        self._client = OpenAI(api_key=api_key, max_retries=6, **options)
         self._model = model
         self._dimensions = dimensions
 
@@ -83,12 +86,25 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
                 raise RuntimeError(
                     f"Embedding provider returned {len(items)} vectors for {len(batch)} texts."
                 )
+            if [item.index for item in items] != list(range(len(batch))):
+                raise RuntimeError("Embedding provider returned duplicate or invalid result indices.")
             for item in items:
                 if len(item.embedding) != self._dimensions:
                     raise RuntimeError(
                         f"Embedding provider returned {len(item.embedding)} dimensions; "
                         f"expected {self._dimensions}."
                     )
+                if not all(math.isfinite(value) for value in item.embedding) or not any(item.embedding):
+                    raise RuntimeError("Embedding provider returned an invalid or zero vector.")
                 all_vectors.append(item.embedding)
             total_tokens += response.usage.total_tokens
         return EmbeddingResult(vectors=all_vectors, tokens_used=total_tokens)
+
+
+class OpenRouterEmbeddingProvider(OpenAIEmbeddingProvider):
+    """Use the same model/input/dimensions through OpenRouter, without fallback models."""
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key, model="openai/text-embedding-3-small",
+                         dimensions=DEFAULT_EMBEDDING_DIMENSIONS,
+                         base_url="https://openrouter.ai/api/v1")

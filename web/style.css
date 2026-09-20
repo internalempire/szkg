@@ -44,24 +44,98 @@ body {
   color: var(--muted); margin: 8px 0 4px; }
 .muted { color: var(--muted); font-size: 13px; margin: 0; }
 
+.map-status { font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.status-headline { margin: 0 0 4px; color: var(--ink); }
+.map-status.needs-attention .status-headline { color: #e8bd75; }
+.map-status details { color: var(--muted); }
+.map-status summary { cursor: pointer; width: fit-content; }
+.map-status summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.map-status p { margin-block: 0 6px; }
+.map-status dl { margin-block: 8px; }
+.map-status dd { margin: 0 0 6px; color: var(--ink); }
+.map-status code { color: var(--ink); }
+
+/* Setup extends the existing sidebar; jobs never cover the graph with a modal. */
+.library-controls { font-size: 13px; line-height: 1.45; }
+.library-controls summary { cursor: pointer; color: var(--ink); }
+#library-settings { margin-block: 10px; }
+.library-controls p { margin-block: 10px; overflow-wrap: anywhere; }
+.library-controls fieldset { border: 0; padding: 0; margin: 14px 0; min-width: 0; }
+.library-controls legend { font-weight: 600; padding: 0; margin-bottom: 8px; }
+.library-controls label { display: block; margin-top: 10px; }
+.library-controls input, .library-controls select { width: 100%; min-width: 0; margin-top: 4px; padding: 9px;
+  color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.library-controls input::placeholder { color: #a3adbf; }
+.library-controls .muted { color: #a3adbf; }
+.library-controls a { color: #9bb8ff; }
+.library-controls button { font-size: 13px; }
+.library-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.library-controls .error { color: #ffb3a8; }
+.library-controls dl { margin-block: 10px; }
+.library-controls dt { color: #a3adbf; }
+.library-controls dd { margin: 0 0 8px; overflow-wrap: anywhere; }
+#library-preview { border-block: 1px solid var(--border); padding-block: 10px; margin-bottom: 10px; }
+#library-preview h3 { font-size: 14px; margin: 0 0 8px; }
+#library-confirm { border-color: var(--accent); }
+#library-feedback:empty, #papers-feedback:empty { display: none; }
+
 #search {
   width: 100%; padding: 9px 11px; border: 1px solid var(--border);
   border-radius: 8px; background: var(--bg); color: var(--ink); font-size: 14px;
 }
-.search-group { position: relative; }
-#search { padding-right: 78px; }
+.search-group label { display: block; font-size: 13px; margin-bottom: 6px; }
 #search-status {
-  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-  color: var(--muted); font-size: 11px; pointer-events: none;
+  color: var(--muted); font-size: 12px; line-height: 1.4; margin: 6px 0;
 }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.search-actions, .view-actions, .pagination { display: flex; gap: 6px; align-items: center; }
+.view-actions > button { flex: 1; }
+.search-actions button, .pagination button { font-size: 12px; padding: 6px 8px; }
+.pagination { justify-content: space-between; font-size: 11px; margin-top: 8px; }
+.paper-results, .related-papers { list-style: none; padding: 0; margin: 0; max-height: 260px; overflow-y: auto; }
+.related-papers { max-height: 160px; margin-block: 8px 12px; }
+.paper-results li + li, .related-papers li + li { border-top: 1px solid var(--border); }
+.paper-results button, .related-papers button { display: block; text-align: left; width: 100%; border: 0; border-radius: 0; padding: 9px 6px; background: transparent; }
+.result-title, .result-meta, .result-action { display: block; overflow-wrap: anywhere; }
+.result-title { font-size: 13px; line-height: 1.4; }
+.result-meta { font-size: 11px; line-height: 1.4; color: var(--muted); margin-block: 3px; }
+.result-action { font-size: 11px; color: #9bb8ff; margin-top: 4px; }
+.result-issue { display: block; font-size: 12px; line-height: 1.4; color: #e8bd75; margin-top: 5px; }
+.result-zotero { display: inline-block; color: #9bb8ff; font-size: 12px; padding: 4px 6px 9px; }
+#btn-incomplete { text-align: left; font-size: 13px; }
+#btn-incomplete[aria-pressed="true"] { border-color: var(--accent); }
+.quality-help { font-size: 12px; line-height: 1.45; color: #a3adbf; }
+.quality-help p { margin: 0 0 8px; }
+.quality-help summary { cursor: pointer; color: var(--ink); }
+.info-panel h3 { font-size: 13px; margin: 12px 0 6px; }
+#viewer-message:empty { display: none; }
+#viewer-message.error { color: #ffb3a8; }
+#filter-summary, #viewer-message { line-height: 1.45; }
 
 .controls { display: flex; flex-direction: column; gap: 8px; }
+.saved-views { font-size: 13px; line-height: 1.45; }
+.saved-views summary { cursor: pointer; }
+.saved-views p { margin-block: 10px; overflow-wrap: anywhere; }
+.saved-views .muted { color: #a3adbf; }
+.saved-views fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.saved-views label { display: block; margin-top: 12px; }
+.saved-views input, .saved-views select { width: 100%; min-width: 0; margin-block: 5px 8px;
+  padding: 9px; color: var(--ink); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.saved-views input::placeholder { color: #a3adbf; }
+.saved-views button { font-size: 13px; }
+.saved-views .error { color: #ffb3a8; }
+#saved-view-undo { margin-top: 8px; }
+.saved-views select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .switch { font-size: 13px; display: flex; align-items: center; gap: 7px; cursor: pointer; }
 button {
   padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg); color: var(--ink); font-size: 14px; cursor: pointer;
 }
 button:hover { border-color: var(--accent); color: var(--accent); }
+button:disabled { cursor: default; opacity: .55; }
+:is(button, input, summary, a, .paper-title):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.paper-results button:focus-visible, .related-papers button:focus-visible { outline-offset: -2px; }
 
 .map-key {
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px;
@@ -86,6 +160,8 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 #legend .swatch { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 12px; }
 #legend .count { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
 #legend .vis { flex: 0 0 auto; margin: 0; cursor: pointer; }
+#legend .topic-select { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; padding: 4px; border: 0; background: transparent; font: inherit; text-align: left; }
+#legend .topic-select .name { overflow-wrap: anywhere; }
 #legend li.topic-hidden .name { text-decoration: line-through; color: var(--muted); }
 #legend li.topic-hidden .swatch { opacity: 0.3; }
 .topics-heading {
@@ -120,6 +196,10 @@ button:hover { border-color: var(--accent); color: var(--accent); }
     linear-gradient(90deg, rgba(120, 140, 200, 0.025) 1px, transparent 1px);
   background-size: 64px 64px;
 }
+#sidebar-toggle { position: absolute; top: 12px; left: 14px; z-index: 11; font-size: 12px; background: var(--panel); }
+#view-restore-message { position: absolute; top: 54px; left: 14px; right: 14px; z-index: 6;
+  max-width: 340px; padding: 9px 11px; margin: 0; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--panel); color: var(--ink); font-size: 12px; line-height: 1.45; }
 #topic-islands { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
 #cy {
   position: absolute; inset: 0; z-index: 2; background: transparent;
@@ -206,4 +286,9 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   #sidebar { width: 270px; flex-basis: 270px; padding: 14px 12px; }
   .brand-sub { display: none; }
   #panels { width: 340px; max-width: 52vw; }
+}
+@media (max-width: 700px) {
+  #sidebar { position: absolute; inset: 0 auto 0 0; z-index: 10; width: min(340px, 100vw); padding-top: 58px; }
+  #panels { right: 12px; bottom: 12px; width: calc(100% - 24px); max-width: none; }
+  .info-panel { max-height: 40vh; }
 }

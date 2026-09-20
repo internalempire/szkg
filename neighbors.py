@@ -7,6 +7,8 @@ import sys
 
 from data_migration import CLUSTERS_FILE, GRAPH_FILE, migrate_local_data
 from store import PaperStore
+from pathlib import Path
+from profiles import select_profile, use_profile, profile_path
 
 
 NEIGHBOR_COUNT = 8
@@ -32,12 +34,12 @@ def main() -> None:
     topic_by_key: dict[str, int] = {}
     weak_by_key: dict[str, bool] = {}
     links_by_key: dict[str, int] = {}
-    if CLUSTERS_FILE.exists():
-        clusters = json.loads(CLUSTERS_FILE.read_text(encoding="utf-8"))
+    if profile_path(CLUSTERS_FILE).exists():
+        clusters = json.loads(profile_path(CLUSTERS_FILE).read_text(encoding="utf-8"))
         label_by_id = {topic["id"]: topic["label"] for topic in clusters.get("topics", [])}
         topic_by_key = {key: int(value) for key, value in clusters.get("assignments", {}).items()}
-    if GRAPH_FILE.exists():
-        graph = json.loads(GRAPH_FILE.read_text(encoding="utf-8"))
+    if profile_path(GRAPH_FILE).exists():
+        graph = json.loads(profile_path(GRAPH_FILE).read_text(encoding="utf-8"))
         weak_by_key = {node["id"]: bool(node.get("weak_assignment", False)) for node in graph["nodes"]}
         for edge in graph["edges"]:
             for endpoint in (edge["source"], edge["target"]):
@@ -73,4 +75,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with use_profile(select_profile(Path(__file__).parent)):
+        main()

@@ -72,8 +72,7 @@
     ), core[0]);
   }
 
-  function expandedHull(points, padding) {
-    const hull = convexHull(topicCore(points));
+  function expandHull(hull, padding) {
     const cx = median(hull.map((point) => point.x));
     const cy = median(hull.map((point) => point.y));
     return hull.map((point) => {
@@ -81,6 +80,22 @@
       const distance = Math.max(1, Math.hypot(dx, dy));
       return { x: point.x + dx / distance * padding, y: point.y + dy / distance * padding };
     });
+  }
+
+  function prepareGeometry(nodes, project = (point) => point) {
+    const groups = new Map();
+    nodes.forEach((node) => {
+      if (node.cluster === -1 || node.hidden) return;
+      if (!groups.has(node.cluster)) groups.set(node.cluster, []);
+      groups.get(node.cluster).push({ ...project(node), weak: node.weak, source: node });
+    });
+    return new Map([...groups].sort((a, b) => a[1].length - b[1].length).map(([id, points]) => {
+      const core = topicCore(points), anchor = topicAnchor(points);
+      // Preserve the original two-stage trimming, including its small-island shapes.
+      const outline = core.length > 2 ? convexHull(topicCore(core)) : core;
+      return [id, { kind: Math.min(3, core.length), outline: outline.map((p) => p.source),
+        anchor: anchor?.source }];
+    }));
   }
 
   function prepareCanvas(canvas) {
@@ -96,7 +111,7 @@
     return { context, width, height };
   }
 
-  function drawIsland(context, points, color, emphasis) {
+  function drawIsland(context, points, color, emphasis, kind) {
     if (!points.length) return;
     const fillAlpha = emphasis > 0 ? 0.15 : emphasis < 0 ? 0.025 : 0.075;
     const lineAlpha = emphasis > 0 ? 0.42 : emphasis < 0 ? 0.06 : 0.2;
@@ -107,9 +122,9 @@
     context.shadowColor = rgba(color, emphasis > 0 ? 0.28 : 0.14);
     context.shadowBlur = emphasis > 0 ? 28 : 20;
     context.beginPath();
-    if (points.length === 1) {
+    if (kind === 1) {
       context.arc(points[0].x, points[0].y, 24, 0, Math.PI * 2);
-    } else if (points.length === 2) {
+    } else if (kind === 2) {
       context.moveTo(points[0].x, points[0].y);
       context.lineTo(points[1].x, points[1].y);
       context.lineCap = "round";
@@ -119,7 +134,7 @@
       context.restore();
       return;
     } else {
-      const hull = expandedHull(points, 18);
+      const hull = expandHull(points, 18);
       context.moveTo(hull[0].x, hull[0].y);
       hull.slice(1).forEach((point) => context.lineTo(point.x, point.y));
       context.closePath();
@@ -186,20 +201,15 @@
 
   function update(options) {
     const { canvas, labels, topics, nodes, hiddenTopics, focusTopic, detailLevel } = options;
+    const project = options.project || ((point) => point);
+    const geometry = options.geometry || prepareGeometry(nodes, project);
     const { context, width, height } = prepareCanvas(canvas);
     const topicById = new Map(topics.map((topic) => [topic.id, topic]));
-    const pointsByTopic = new Map();
-    nodes.forEach((node) => {
-      if (node.cluster === -1 || node.hidden || hiddenTopics.has(node.cluster)) return;
-      if (!pointsByTopic.has(node.cluster)) pointsByTopic.set(node.cluster, []);
-      pointsByTopic.get(node.cluster).push(node);
-    });
-
-    [...pointsByTopic.entries()].sort((a, b) => a[1].length - b[1].length).forEach(([id, points]) => {
+    geometry.forEach((shape, id) => {
       const topic = topicById.get(id);
-      if (!topic) return;
+      if (!topic || hiddenTopics.has(id)) return;
       const emphasis = focusTopic === null ? 0 : (focusTopic === id ? 1 : -1);
-      drawIsland(context, topicCore(points), topic.color, emphasis);
+      drawIsland(context, shape.outline.map(project), topic.color, emphasis, shape.kind);
     });
 
     const labelLimit = detailLevel >= 2 ? Infinity : detailLevel === 1 ? MID_ZOOM_LABELS : OVERVIEW_LABELS;
@@ -208,8 +218,8 @@
     const accepted = [];
     let visibleCount = 0;
     ordered.forEach((entry) => {
-      const points = pointsByTopic.get(entry.id) || [];
-      const anchor = topicAnchor(points);
+      const point = geometry.get(entry.id)?.anchor;
+      const anchor = point && project(point);
       const permitted = entry.id === focusTopic || visibleCount < labelLimit;
       if (!anchor || hiddenTopics.has(entry.id) || !permitted ||
           anchor.x < 20 || anchor.y < 18 || anchor.x > width - 20 || anchor.y > height - 18) {
@@ -234,5 +244,5 @@
     applyPointerReveal(labels);
   }
 
-  window.SemanticOverlays = { bindPointerReveal, buildLabels, update };
+  window.SemanticOverlays = { bindPointerReveal, buildLabels, prepareGeometry, update };
 })();

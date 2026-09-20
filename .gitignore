@@ -9,7 +9,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
-# Personal Zotero metadata, abstracts, vectors, and generated graph files
+# Personal Zotero/Papers metadata, abstracts, vectors, and all connector profiles
 data/
 
 # JavaScript development dependencies (the compiled browser bundle is tracked)

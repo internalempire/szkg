@@ -9,6 +9,295 @@
 
 ## Aggiornamento più recente — fase beta (22 luglio 2026, leggi prima questo)
 
+### Connettori selezionabili Papers/OpenRouter — 20 settembre 2026
+
+Stato più recente, che prevale sulle note di debug seguenti: dopo le correzioni
+endpoint e contratto JSON l'utente ha confermato “Ok, funziona” al test della
+connessione Papers. Login/elenco collezioni dunque confermati in una sessione
+reale; non estendere questa conferma a tutti gli account o a una verifica
+indipendente del pagamento OpenRouter. Spiegato il flusso quotidiano Preview
+sync → conferma → Open updated map, la persistenza locale e il riuso embedding
+entro lo stesso profilo. L'utente ha richiesto la pubblicazione degli avanzamenti
+su GitHub internalempire/szkg e l'aggiornamento complessivo del README inglese.
+
+Ultima correzione del contratto JSON: dopo lo spostamento dell'endpoint, l'utente
+riceve “Papers did not confirm a successful read”. Ispezionato SENZA login il
+codice pubblico attuale dell'app ReadCube v5.4.21, modulo
+`https://app.readcube.com/chunk-YHBK2SZJ.js`: il servizio collezioni usa direttamente
+`collections` e l'identità `id || collection_id`; il servizio item usa `items`
+e `total`. Non richiede il vecchio campo radice `status: "ok"`. Il nostro `_get`
+ora accetta l'assenza di status soltanto in presenza dei campi dati richiesti,
+rifiutando comunque status espliciti diversi da ok e indicatori di errore.
+Collezioni con identità invalide/duplicate o nomi di tipo errato sono rifiutate;
+la paginazione item mantiene tutti i controlli su totali e completezza. Eventuali
+errori di schema includono solo nomi noti e tipi dei campi, mai valori o chiavi
+arbitrarie. Verifica autenticata ancora a carico del prossimo tentativo utente;
+nessun cookie/password/account reale letto durante questa analisi.
+
+Ultima diagnosi concreta: l'utente riceve PAPERS_COLLECTIONS / REDIRECT_HTTP_301.
+Verificata senza credenziali la risposta dell'endpoint storico
+`https://sync.readcube.com/collections/`: HTTP 301 verso l'indirizzo esatto
+`https://services.readcube.com/collections`, HTTPS e senza query. Il nuovo
+endpoint risponde 401 senza credenziali. Aggiunta costante COLLECTIONS con
+l'indirizzo nuovo; il client lo chiama direttamente, senza abilitare redirect.
+La lettura item rimane sul sync host: una prova con ID fittizio ha dato 401,
+non 301; non è stata presunta una migrazione di tutta l'API. POST consentito
+solo al login, non agli endpoint metadati. Il login reale e lo schema delle
+risposte autenticate restano da provare dall'utente dopo riavvio del server.
+
+Correzione successiva per l'errore riportato dall'utente “Papers redirected the
+request”: il blocco indiscriminato scartava anche gli header della risposta di
+login. `_NoRedirect` ora impedisce di seguire Location lasciando ispezionare la
+risposta originale. Solo per il POST al login fisso, un 301/302/303/307/308 con
+Set-Cookie viene passato alla normale verifica delle collezioni: nessuna
+richiesta alla destinazione del redirect e nessun reinvio di credenziali. Cookie
+non significa autenticazione riuscita: il controllo API resta obbligatorio.
+Redirect senza cookie e redirect delle collezioni vengono ancora rifiutati,
+con codice HTTP sicuro, senza mostrare URL/query/risposte private. La prova
+remota senza credenziali ha dato GET 404 e POST 422, non ha riprodotto il login
+dell'utente: la correzione va ancora verificata col suo account dopo riavvio.
+Test aggiunti sui casi di redirect e su un server HTTP fittizio locale che
+dimostra l'assenza di richieste alla destinazione. Nessuna credenziale reale usata.
+
+Debug login successivo: l'utente segnala password svuotata e nessuna collezione,
+senza messaggio visibile; usa email/password, non SSO. Verificata raggiungibilità
+HTTPS dei due host dal Python locale e presenza del connettore nel server aperto.
+La causa dell'autenticazione reale resta da determinare. Corretto un difetto UI:
+feedback di connessione/errore/successo ora adiacente al pulsante Papers, invece
+che soltanto in fondo al pannello. Diagnostica sicura distingue PAPERS_LOGIN,
+PAPERS_SESSION, PAPERS_COLLECTIONS e guasti DNS/TLS/TIMEOUT, senza risposte remote
+grezze, password o cookie. Non disabilitare TLS e non salvare la password nel
+`.env` per aggirare il problema. Riavviare il server e raccogliere il nuovo errore
+dal prossimo tentativo dell'utente. Verifica: 96 test Python, 26 JavaScript e
+prove browser sintetiche errore/successo su desktop e a 390 px. Nessun login
+reale effettuato dall'assistente, nessuna nuova credenziale letta o salvata.
+
+Questa sezione prevale sui riferimenti storici a un'app solo Zotero/OpenAI.
+L'utente ha scelto un'unica codebase con due selezioni indipendenti, non un fork
+duplicato: libreria Zotero/Papers e servizio embedding OpenAI/OpenRouter.
+Il primo obiettivo pratico è provare Papers; il modello rimane
+`text-embedding-3-small`, 1.536 dimensioni, identico testo titolo+abstract.
+OpenRouter usa l'ID `openai/text-embedding-3-small`, senza fallback di modello.
+
+- `profiles.py` seleziona i connettori e isola percorsi per account/collezione,
+  servizio e contratto embedding. Zotero+OpenAI conserva `data/`; le altre
+  combinazioni usano `data/profiles/<hash>/`, ignorata da Git. Non vengono
+  spostati o copiati i dati precedenti. Cambiare profilo può richiedere embedding
+  iniziali a pagamento: non c'è riuso automatico tra Zotero/Papers o provider.
+- `papers_source.py` è un client indipendente basato sul protocollo della skill
+  `YusukeKimata-Moo/readcube-papers-skill`, letta integralmente senza eseguirne lo
+  script. Accesso email/password, collezione esplicita, sola lettura; SSO/MFA non
+  supportati. Password non salvata, cookie solo nella memoria del server;
+  riconnessione dopo riavvio/scadenza. Le risposte reali vanno ancora verificate.
+- Papers legge ogni volta l'intera collezione, non finge una versione incrementale
+  Zotero. Pagine mancanti, ID duplicati, totali variabili o errori bloccano tutto
+  prima di cancellazioni locali e richieste embedding. Una collezione realmente
+  vuota resta soggetta a conferma. Il totale stabile non garantisce da solo una
+  fotografia transazionale se la libreria cambia contemporaneamente.
+- La pipeline scientifica e i due renderer sono riutilizzati. Le diagnostiche
+  locali leggono il profilo selezionato; gli script esplicitamente Zotero restano
+  Zotero. `build_map.py` e `test_embedding.py` rifiutano profili non legacy.
+- La UI condivisa consente login temporaneo Papers, elenco collezioni, scelta
+  provider e anteprima. Il browser non riceve chiavi/cookie dal server; le chiavi
+  API, email e ID collezione stanno nella `.env` locale non cifrata. La password
+  Papers non entra nella configurazione. Le modifiche non salvate disabilitano
+  l'avvio dell'anteprima per evitare operazioni sul vecchio profilo.
+- Tutti i POST richiedono anche l'identità del profilo caricato, verificata sotto
+  lo stesso lock dell'azione. Le letture JSON fissano il profilo una sola volta
+  per richiesta. Questo impedisce a schede vecchie di agire sul nuovo profilo.
+- Viste salvate isolate per i nuovi profili; identità delle vecchie viste Zotero
+  preservata. I link Zotero sono nascosti per Papers: non è stato inventato un
+  deep-link Papers non verificato. Cercare il titolo nell'app Papers.
+
+Verifica: 93 test Python e 26 test JavaScript superati senza rete (paginazione,
+sessione, isolamento, cache
+LanceDB reale in directory temporanea, stessa preparazione del testo, controllo
+profilo HTTP) e prova browser con dati sintetici. **Non sono ancora stati
+effettuati login Papers reali o richieste embedding OpenRouter a pagamento.**
+Il test pratico richiede che l'utente inserisca le credenziali nella UI locale,
+mai in chat. Prima verificare “Connect & list collections”, poi “Preview rebuild”
+e annullare per una prova di sola lettura; confermare soltanto dopo aver visto
+conteggi, privacy e costo. Documentazione operativa aggiornata nel README.
+
+La revisione indipendente prevista da Impeccable ha individuato e fatto correggere
+binding dei POST al profilo, lettura atomica dell'identità per i JSON, fallback
+viewer neutro e stato disconnesso per cookie scaduto. Nessun commit/push effettuato;
+le modifiche delle fasi precedenti restano nel worktree e vanno conservate.
+
+### Elenco paper incompleti nella UI — 20 settembre 2026
+
+Sotto la ricerca, **Review incomplete papers** elenca i paper della mappa con
+abstract vuoto, titolo simile a un nome file oppure abstract non disponibile nei
+metadati locali. Quest'ultimo caso non afferma che l'abstract manchi in Zotero.
+Le categorie possono sovrapporsi; il numero sul pulsante conta paper distinti.
+Ogni risultato offre apertura sulla mappa e link diretto a Zotero; restano ricerca,
+paginazione, ripristino dei filtri e uso da tastiera. Le viste salvate includono
+`qualityOnly` (false per i vecchi segnalibri). Il modulo condiviso `web/explorer.js`
+gestisce tutto per Sigma e Cytoscape, senza nuove API né modifiche alla pipeline.
+L'elenco legge soltanto i JSON già caricati: `data_quality.py` controlla invece la
+cache LanceDB, che può includere paper non ancora pubblicati sulla mappa.
+Per aggiornare le segnalazioni: correggere in Zotero, sincronizzare Zotero,
+eseguire Preview sync e confermare, infine Reload local map. Aprire l'elenco non
+genera costi; modifiche a titolo/abstract possono richiedere nuovi embedding.
+La fixture sintetica `tests/preview_refinement.py` copre categorie sovrapposte,
+abstract sconosciuto, paginazione e correzioni dopo il ricaricamento.
+Verifica: 77 test Python e 25 JavaScript superati; controlli browser su Sigma e
+Cytoscape, anche a 390 px, senza errori console. Verificati ricerca, paginazione,
+apertura di paper nascosti, viste salvate e conteggio aggiornato da 26 a 2 dopo
+correzioni sintetiche. La revisione Impeccable ha portato a conservare l'identità
+del risultato per restituirgli il focus dopo Esc anche quando l'elenco viene
+ricreato; su mobile il focus torna al controllo che riapre la barra laterale.
+
+### Fase 1 affidabilità — 20 settembre 2026
+
+Questa aggiunta prevale sulle descrizioni precedenti per il recupero dei contenuti.
+Il codice ora corregge il layout di esattamente cinque paper e gestisce un solo
+paper senza PCA. Ogni nodo pubblicato registra `content_fingerprint` (SHA-256 di
+titolo e abstract) e `needs_rebuild`. `sync` confronta anche i contenuti della
+cache, non soltanto le chiavi, recuperando modifiche salvate prima di un arresto
+senza ripagare gli embedding già presenti. Posizioni, temi e archi dei paper
+esistenti restano invariati; le modifiche attendono un full rebuild esplicito.
+
+`graph.json.status` espone `status_known`, `pending_paper_count`,
+`last_full_rebuild_at` e `last_sync_at`. Il modulo condiviso `web/map-status.js`
+mostra questi dati in entrambi i renderer. Le vecchie mappe restano utilizzabili
+ma hanno stato sconosciuto fino al primo full rebuild: il primo sync aggiunge le
+impronte per il recupero futuro, senza fingere di conoscere la storia precedente.
+I nuovi campi sono aggiuntivi: nessuna migrazione di LanceDB o modifica degli
+embedding. Restano da progettare fotografia multi-file e blocco scrittori
+concorrenti; usare un solo processo sync/refresh alla volta.
+
+Verifica fase 1: 50 test Python e 6 test JavaScript network-free. Nessuna chiamata
+Zotero/OpenAI o ricostruzione dei dati personali durante l'implementazione.
+
+### Fase 2 esplorazione e UX — 20 settembre 2026
+
+`web/explorer.js` centralizza ricerca per titolo (tutte le parole, ordine libero),
+elenco paginato da 20 paper, dettaglio e confronto, legenda accessibile da
+tastiera e apertura/chiusura della sidebar. Piccoli adattatori nei due renderer
+gestiscono selezione, visibilità e camera. La ricerca include i paper nascosti:
+“Show & open” riattiva il tema e, se serve, le assegnazioni deboli. I paper
+collegati si confrontano da un elenco ordinato per similarità, senza cliccare
+necessariamente gli archi. Nessun nuovo calcolo semantico nel browser.
+
+“Fit map” modifica solo la camera; “Clear filters” azzera ricerche, selezioni e
+filtri senza spostarla. “Reload local map” sostituisce “Refresh data”: legge solo
+i JSON locali, mostra stato/errori inline e impedisce clic concorrenti. Non
+esegue sync o refresh Python. Su finestre strette la sidebar parte chiusa e si
+richiude aprendo un risultato. Tab/Invio/frecce permettono l'esplorazione;
+Escape chiude i pannelli con ripristino del focus.
+
+Pipeline scientifica, palette scura e renderer Cytoscape conservati. L'allowlist
+del server include il nuovo modulo: riavviare `serve` per servirlo. Nessuna
+dipendenza aggiunta, migrazione dati o chiamata Zotero/OpenAI. Verifica: 50 test
+Python e 11 JavaScript; prove browser manuali con 25 paper sintetici su entrambi
+i renderer e viewport stretto. Non è ancora una suite E2E automatizzata né una
+certificazione completa di accessibilità. Le modifiche di fase 1 e fase 2 sono
+locali, senza commit o push eseguiti durante queste fasi.
+
+### Fase 3 distribuzione locale — 20 settembre 2026
+
+Implementati avvio semplificato macOS (`Launch SZKG.command`, richiede `.venv`
+già installata), configurazione nel browser e comandi con anteprima/conferma.
+`web/library.js` aggiunge “Library setup & sync” a entrambi i renderer e funziona
+anche senza una mappa iniziale. “Preview sync/rebuild” legge Zotero; soltanto
+“Confirm and apply” autorizza embedding, rimozioni locali e pubblicazione. La
+stima si riferisce allo stesso elenco in memoria, non a una seconda lettura.
+OpenAI non viene contattato durante le prove o la sola apertura del viewer.
+
+`local_control.py` gestisce un lavoro in background e impostazioni; `serve.py`
+espone azioni JSON fisse, validate tramite Host loopback esatto, Origin, controllo
+cross-site, token casuale per server e limiti sul corpo. Nessun esecutore shell,
+nessuna chiave o eccezione grezza restituita. `.env` resta in chiaro, ignorato da
+Git, con permessi 0600 su macOS/Linux; campi chiave vuoti conservano i valori.
+Le impostazioni si rileggono senza cache dotenv; le variabili ambiente prevalgono.
+
+`work_lock.py` impedisce scrittori concorrenti nei comandi supportati, incluse
+CLI e diagnostica embedding. Il lock dura anche durante l'anteprima (30 minuti
+massimo). Si può annullare prima della conferma; un lavoro confermato termina
+anche chiudendo la scheda e lo shutdown normale del server lo attende. Nessun
+riavvio automatico di lavori dopo un crash. Restano da implementare installer
+autonomo, Portachiavi, fotografia transazionale di tutti i JSON e annullamento
+sicuro a metà elaborazione. L'anteprima può inizializzare cache vuota o migrare
+JSON storici, ma non applica modifiche alla libreria o richieste embedding.
+
+Test di controllo/sicurezza usano cartelle temporanee, chiavi fittizie e servizi
+simulati; `tests/preview_control.py` offre la stessa prova manuale nel browser
+senza esporre `data/` reale. Nessuna chiamata reale Zotero/OpenAI effettuata.
+Verifica finale: 66 test Python e 11 JavaScript; flusso browser primo avvio,
+annullamento/conferma, mappa Sigma, ricaricamento Cytoscape a 390 px, perdita del
+servizio e riconnessione. I test browser sono manuali su fixture, non una suite
+E2E automatizzata. Il launcher è verificato con un interprete fittizio e percorsi
+con spazi, senza avviare il server sui dati reali.
+Questa fase resta locale, senza commit o push. Codice, interfaccia e documenti
+pubblici in inglese, comunicazione con l'utente e handover in italiano.
+
+### Fase 4 rifinitura e misurazione — 20 settembre 2026
+
+Questa fase implementa i quattro punti dell'ultima parte della roadmap: continuità
+dei temi, viste salvate, diagnostica della proiezione e ottimizzazione circoscritta
+delle isole. HDBSCAN, c-TF-IDF, t-SNE, embedding e archi semantici non cambiano.
+
+`topic_identity.py` aggiunge `stable_id`, `color_index`, `continuity` e
+`previous_ids` ai temi classificati, più `next_color_index` al documento cluster.
+Gli ID numerici restano quelli del clustering. Il primo normale sync/rebuild
+registra la palette storica ordinata per dimensione; i rebuild successivi
+confrontano i membri forti della fotografia precedente coerente. Continuità
+solo con almeno 60% del gruppo maggiore in comune e relazione univoca; sovrapposizioni
+di almeno due paper e 20% del gruppo minore identificano rami concorrenti.
+Divisioni/fusioni/ambiguità ricevono nuove identità e colori. È un'euristica di
+visualizzazione prudente, non una classificazione scientifica validata. Le
+assegnazioni deboli non decidono la continuità. Nessuna migrazione LanceDB e
+nessuna riscrittura dei dati per la sola apertura del viewer.
+
+`web/saved-views.js` salva fino a 20 segnalibri espliciti per libreria nel browser:
+ricerche, filtri, tema evidenziato, paper selezionato e camera. Non salva il secondo
+pannello, credenziali, abstract o vettori; nomi, ricerche e chiavi Zotero restano
+comunque dati locali dell'utente. Browser/profilo/porta diversi non condividono
+questi segnalibri. Eliminazione annullabile, errori di storage inline, nessun
+ripristino automatico. I filtri seguono identità persistenti e mai ID numerici
+riciclati. I filtri legacy valgono solo per la stessa revisione. Se cambiano
+coordinate o renderer, si centra il paper salvato oppure si adatta la mappa.
+Su finestre strette il ripristino chiude la sidebar, porta il focus sul paper
+(o sul toggle) e mantiene visibili gli avvisi. L'allowlist serve il nuovo modulo;
+riavviare un eventuale server precedente e ricaricare la pagina.
+
+`SemanticOverlays.prepareGeometry` conserva contorni e ancore usando le stesse
+due fasi di esclusione degli outlier della versione precedente. Durante pan/zoom
+si proiettano solo questi punti. Cache invalidata da dati/visibilità, rotazione
+Sigma e posizioni/dati dei nodi Cytoscape. Non modificati picking e visibilità
+degli archi Sigma. Il comportamento storico di movimento del fallback Cytoscape
+resta quello preesistente: questa fase non lo riprogetta.
+
+Benchmark CPU isolato `npm run benchmark:overlays`: 2.500 nodi / 70 temi sintetici,
+40 warmup e 300 iterazioni, canvas/DOM simulati. Prima: mediana 3,549 ms;
+prima prova dopo: 3,749 ms senza cache / 0,318 ms con cache. Non sono FPS,
+né una misura GPU o della latenza complessiva nel browser.
+
+`map_quality.py` legge soltanto cache e mappa esistenti, con il lock scrittori,
+e stampa conteggi aggregati, trustworthiness e sovrapposizione dei vicini su un
+campione deterministico (500 per default, massimo 2.000). Nessuna rete o
+pubblicazione della mappa. `--compare-compaction` ricalcola un layout solo in
+memoria e confronta prima/dopo la compattazione con gli stessi temi pubblicati:
+può essere lento e NON recupera coordinate storiche. Il campione limita anche
+l'insieme dei vicini; i punteggi non attestano correttezza scientifica. Segnala
+contenuti ancora non riconciliati, impronte mancanti e storia sconosciuta.
+`docs/QUALITY.md` descrive limiti e protocollo umano: il set di paper giudicati
+da un ricercatore NON è stato inventato e resta da costruire con l'utente.
+
+Verifica: 77 test Python e 21 JavaScript, build Sigma aggiornata, diff senza
+errori di spaziatura; test browser manuali Sigma/Cytoscape su fixture sintetica,
+desktop e 390 px, save/open/reload/delete/undo, cambio renderer e rebuild simulato
+con rinumerazione/divisione. Revisione indipendente Impeccable della nuova UI e
+correzione del ripristino mobile. `tests/preview_refinement.py` riproduce il test
+con dati temporanei; fixture/server/schede e segnalibri di prova chiusi/rimossi.
+Eseguita anche la diagnostica aggregata in sola lettura della mappa reale, senza
+rigenerarla o pubblicare dati personali. Nessuna chiamata Zotero/OpenAI, commit
+o push. Tutte le modifiche delle fasi 1–4 sono ancora locali; preservare anche
+il file SVG non tracciato dell'utente, estraneo a queste modifiche.
+
+### Stato beta precedente (snapshot storico, antecedente alle fasi 1–4)
+
 **Questa sezione integra e, dove diverge, prevale sullo snapshot alpha più in
 basso.** Codice e Git restano la fonte di verità: all'avvio controlla sempre
 `git log --oneline -12` e `git status`.

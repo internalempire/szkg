@@ -11,6 +11,7 @@ import numpy as np
 import pyarrow as pa
 
 from zotero_source import Paper
+from profiles import profile_path
 
 
 DATA_DIRECTORY = Path(__file__).parent / "data" / "lancedb"
@@ -55,7 +56,7 @@ class PaperStore:
         expected_model: str | None = None,
     ) -> None:
         self._dimensions = vector_dimensions
-        directory = data_directory or DATA_DIRECTORY
+        directory = data_directory or profile_path(DATA_DIRECTORY)
         directory.mkdir(parents=True, exist_ok=True)
         self._database = lancedb.connect(str(directory))
         if hasattr(self._database, "list_tables"):

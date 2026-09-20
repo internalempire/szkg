@@ -10,6 +10,7 @@ import json
 
 from data_migration import GRAPH_FILE
 from pipeline import commit_sync_state, rebuild_map, sync_embeddings
+from work_lock import exclusive_work
 
 
 def main() -> None:
@@ -47,4 +48,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from pathlib import Path
+    from profiles import select_profile
+    profile = select_profile(Path(__file__).parent)
+    if (profile.source, profile.service) != ("zotero", "openai"):
+        raise SystemExit("This legacy diagnostic supports Zotero + OpenAI only. Use python app.py refresh for the selected connectors.")
+    with exclusive_work():
+        main()

@@ -7,6 +7,7 @@ from costs import CostTracker, count_tokens, estimate_cost, format_usd
 from embeddings import OpenAIEmbeddingProvider
 from store import PaperStore
 from zotero_source import PyzoteroSource
+from work_lock import exclusive_work
 
 
 SAMPLE_SIZE = 5
@@ -40,4 +41,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from pathlib import Path
+    from profiles import select_profile
+    profile = select_profile(Path(__file__).parent)
+    if (profile.source, profile.service) != ("zotero", "openai"):
+        raise SystemExit("This legacy paid diagnostic supports Zotero + OpenAI only. Use the browser preview for the selected connectors.")
+    with exclusive_work():
+        main()

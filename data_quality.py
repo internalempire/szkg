@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 
 from store import PaperStore
+from pathlib import Path
+from profiles import select_profile, use_profile
 
 
 _EXTENSIONS = (".pdf", ".doc", ".docx", ".epub", ".txt", ".rtf")
@@ -40,4 +42,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with use_profile(select_profile(Path(__file__).parent)):
+        main()
